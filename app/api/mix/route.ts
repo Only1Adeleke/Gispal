@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { mixAudio } from "@/lib/ffmpeg"
+import { mixAudio, JingleConfig } from "@/lib/ffmpeg"
 import { storage, tempStorage } from "@/lib/storage"
+import { 
+  getMaxJingles, 
+  canFullExport, 
+  canSelectJinglePosition,
+  canControlJingleVolume,
+  canSavePermanently,
+  getTempStorageDuration,
+  getPreviewDuration,
+  isProPlan
+} from "@/lib/plan-restrictions"
 import fs from "fs/promises"
 import path from "path"
 
@@ -14,16 +24,78 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { audioUrl, jingleId, coverArtId, position, previewOnly } = body
+    const { 
+      audioUrl, 
+      audioSource, // Alternative to audioUrl
+      jingles, // Array of { jingleId, position, volume }
+      coverArtId,
+      coverArtSource, // "custom" | "extracted" | "wp_media"
+      extractedCoverArtUrl, // URL if using extracted cover
+      previewOnly,
+      metadata // { title, artist, album, genre }
+    } = body
 
-    if (!audioUrl) {
-      return NextResponse.json({ error: "audioUrl is required" }, { status: 400 })
+    const audioSourceUrl = audioUrl || audioSource
+    if (!audioSourceUrl) {
+      return NextResponse.json({ error: "audioUrl or audioSource is required" }, { status: 400 })
     }
 
     // Get user to check plan and bandwidth
     const user = await db.users.findById(session.user.id)
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    const isPro = isProPlan(user.plan)
+    const maxJingles = getMaxJingles(user.plan)
+
+    // Enforce jingle limits
+    if (jingles && jingles.length > maxJingles) {
+      return NextResponse.json(
+        { error: `Maximum ${maxJingles} jingle(s) allowed for your plan` },
+        { status: 403 }
+      )
+    }
+
+    // Enforce position selection (free users can only use "start")
+    if (jingles && !isPro) {
+      for (const jingle of jingles) {
+        if (jingle.position && jingle.position !== "start") {
+          return NextResponse.json(
+            { error: "Jingle position selection is only available for Pro plans" },
+            { status: 403 }
+          )
+        }
+      }
+    }
+
+    // Enforce volume control (free users cannot control volume)
+    if (jingles && !isPro) {
+      for (const jingle of jingles) {
+        if (jingle.volume !== undefined && jingle.volume !== 1.0) {
+          return NextResponse.json(
+            { error: "Jingle volume control is only available for Pro plans" },
+            { status: 403 }
+          )
+        }
+      }
+    }
+
+    // Enforce preview-only for free users
+    const isPreview = previewOnly !== undefined ? previewOnly : !isPro
+    if (!isPro && !isPreview) {
+      return NextResponse.json(
+        { error: "Full export is only available for Pro plans" },
+        { status: 403 }
+      )
+    }
+
+    // Handle cover art source restrictions
+    if (coverArtSource === "extracted" && !isPro) {
+      return NextResponse.json(
+        { error: "Extracted cover art is only available for Pro plans" },
+        { status: 403 }
+      )
     }
 
     // Check bandwidth limits
@@ -34,23 +106,32 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get jingle if provided
-    let jinglePath: string | undefined
-    if (jingleId) {
-      const jingle = await db.jingles.findById(jingleId)
-      if (!jingle || jingle.userId !== session.user.id) {
-        return NextResponse.json({ error: "Jingle not found" }, { status: 404 })
+    // Process jingles
+    const jingleConfigs: JingleConfig[] = []
+    if (jingles && jingles.length > 0) {
+      for (const jingle of jingles) {
+        const jingleRecord = await db.jingles.findById(jingle.jingleId)
+        if (!jingleRecord || jingleRecord.userId !== session.user.id) {
+          return NextResponse.json({ error: `Jingle ${jingle.jingleId} not found` }, { status: 404 })
+        }
+        
+        // Download jingle to temp
+        const jingleResponse = await fetch(jingleRecord.fileUrl)
+        const jingleBuffer = await jingleResponse.arrayBuffer()
+        const jingleFilename = `jingle_${Date.now()}_${jingle.jingleId}.mp3`
+        const jinglePath = await tempStorage.save(Buffer.from(jingleBuffer), jingleFilename)
+        
+        jingleConfigs.push({
+          path: jinglePath,
+          position: jingle.position || "start",
+          volume: jingle.volume !== undefined ? jingle.volume : 1.0,
+        })
       }
-      // Download jingle to temp
-      const jingleResponse = await fetch(jingle.fileUrl)
-      const jingleBuffer = await jingleResponse.arrayBuffer()
-      const jingleFilename = `jingle_${Date.now()}.mp3`
-      jinglePath = await tempStorage.save(Buffer.from(jingleBuffer), jingleFilename)
     }
 
     // Get cover art if provided
     let coverArtPath: string | undefined
-    if (coverArtId) {
+    if (coverArtId && coverArtSource === "custom") {
       const coverArt = await db.coverArts.findById(coverArtId)
       if (!coverArt || coverArt.userId !== session.user.id) {
         return NextResponse.json({ error: "Cover art not found" }, { status: 404 })
@@ -60,16 +141,32 @@ export async function POST(request: NextRequest) {
       const coverBuffer = await coverResponse.arrayBuffer()
       const coverFilename = `cover_${Date.now()}.jpg`
       coverArtPath = await tempStorage.save(Buffer.from(coverBuffer), coverFilename)
+    } else if (coverArtSource === "extracted" && extractedCoverArtUrl) {
+      // Download extracted cover art
+      const coverResponse = await fetch(extractedCoverArtUrl)
+      const coverBuffer = await coverResponse.arrayBuffer()
+      const coverFilename = `cover_extracted_${Date.now()}.jpg`
+      coverArtPath = await tempStorage.save(Buffer.from(coverBuffer), coverFilename)
+    } else if (coverArtSource === "wp_media" && coverArtId) {
+      // WordPress media upload - should be handled by wp/upload-cover endpoint
+      // For now, treat as custom
+      const coverArt = await db.coverArts.findById(coverArtId)
+      if (coverArt) {
+        const coverResponse = await fetch(coverArt.fileUrl)
+        const coverBuffer = await coverResponse.arrayBuffer()
+        const coverFilename = `cover_wp_${Date.now()}.jpg`
+        coverArtPath = await tempStorage.save(Buffer.from(coverBuffer), coverFilename)
+      }
     }
 
     // Mix audio
     const outputPath = await mixAudio({
-      audioUrl,
-      jinglePath,
+      audioUrl: audioSourceUrl,
+      jingles: jingleConfigs,
       coverArtPath,
-      position: position || "start",
-      previewOnly: previewOnly || false,
-      previewDuration: 30,
+      previewOnly: isPreview,
+      previewDuration: getPreviewDuration(),
+      metadata,
     })
 
     // Read output file
@@ -82,43 +179,58 @@ export async function POST(request: NextRequest) {
     })
 
     let outputUrl: string
-    if (previewOnly) {
-      // For preview, serve from temp storage
+    const tempDuration = getTempStorageDuration(user.plan)
+    
+    if (isPreview || !canSavePermanently(user.plan)) {
+      // For preview or free users, serve from temp storage (10 minutes)
       const filename = path.basename(outputPath)
       outputUrl = `/api/temp/${filename}`
+      
+      // Schedule deletion after temp duration
+      setTimeout(() => {
+        fs.unlink(outputPath).catch(() => {})
+      }, tempDuration)
     } else {
-      // Upload to permanent storage
+      // Upload to permanent storage for Pro users
       const fileKey = `mixes/${session.user.id}/${Date.now()}_mix.mp3`
       outputUrl = await storage.upload(outputBuffer, fileKey, "audio/mpeg")
+      // Clean up temp file
+      await fs.unlink(outputPath).catch(() => {})
     }
 
     // Save mix record
     const mix = await db.mixes.create({
       userId: session.user.id,
-      audioUrl,
-      jingleId,
+      audioUrl: audioSourceUrl,
+      jingleId: jingles?.[0]?.jingleId, // Store first jingle ID for backward compatibility
       coverArtId,
-      position: position || "start",
+      position: jingles?.[0]?.position || "start",
       outputUrl,
-      isPreview: previewOnly || false,
+      isPreview: isPreview,
     })
 
-    // Clean up temp files
-    if (jinglePath) await fs.unlink(jinglePath).catch(() => {})
-    if (coverArtPath) await fs.unlink(coverArtPath).catch(() => {})
-    if (previewOnly) {
-      // Keep preview file for 30 minutes
-      setTimeout(() => {
-        fs.unlink(outputPath).catch(() => {})
-      }, 30 * 60 * 1000)
-    } else {
-      await fs.unlink(outputPath).catch(() => {})
+    // Clean up temp jingle files
+    for (const jingleConfig of jingleConfigs) {
+      await fs.unlink(jingleConfig.path).catch(() => {})
+    }
+    if (coverArtPath) {
+      // Only delete if it's a temp file (extracted or wp_media)
+      if (coverArtSource === "extracted" || coverArtSource === "wp_media") {
+        if (!isPro) {
+          // Free users: delete temp cover art immediately
+          await fs.unlink(coverArtPath).catch(() => {})
+        }
+        // Pro users: keep it (already uploaded to storage if needed)
+      }
     }
 
     return NextResponse.json({
       id: mix.id,
       outputUrl,
-      isPreview: previewOnly || false,
+      isPreview: isPreview,
+      expiresAt: isPreview || !canSavePermanently(user.plan) 
+        ? new Date(Date.now() + tempDuration).toISOString()
+        : undefined,
     })
   } catch (error: any) {
     return NextResponse.json(

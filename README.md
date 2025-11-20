@@ -222,15 +222,30 @@ curl -X POST "https://your-domain.com/api/wp/mix?api_key=your_api_key" \
 ## How Mixing Works
 
 1. **Upload Audio**: Provide an MP3 URL or upload a file
-2. **Select Jingle** (optional): Choose a jingle to mix with
-3. **Select Cover Art** (optional): Choose cover art to inject
-4. **Choose Position**: Set where the jingle should be placed (start/middle/end)
+2. **Select Jingle** (optional): Choose a jingle to overlay on the audio
+3. **Select Cover Art** (optional): Choose cover art to inject as metadata
+4. **Choose Position**: Set where the jingle should be overlaid (start/middle/end)
 5. **Preview or Full**: Choose preview (20-30 seconds) or full mix
-6. **Process**: FFmpeg merges the audio, injects cover art, and outputs the result
+6. **Process**: FFmpeg overlays the jingle on the audio, injects cover art, and outputs the result
+
+### Audio Overlay Behavior
+
+The jingle is **overlaid** (mixed) on top of the audio, not concatenated:
+- **Output duration** = Original audio duration (not audio + jingle)
+- **During overlay period**: Both the jingle and original audio play simultaneously
+- **After overlay period**: Only the original audio continues
+
+**Example:**
+- Original audio: 3 minutes
+- Jingle: 3 seconds
+- Position: "start"
+- **Result**: 3-minute output where:
+  - First 3 seconds: Jingle + original audio playing together
+  - Remaining 2:57: Only original audio continues
 
 The system:
 - Downloads audio files to temporary storage
-- Uses FFmpeg to merge audio streams
+- Uses FFmpeg to overlay audio streams (amix filter)
 - Injects cover art as MP3 metadata
 - Uploads final output to permanent storage
 - Tracks bandwidth usage per user

@@ -2,7 +2,7 @@ const fs = require("fs").promises
 const path = require("path")
 
 const TMP_DIR = path.join(process.cwd(), "tmp", "gispal")
-const MAX_AGE = 30 * 60 * 1000 // 30 minutes
+const MAX_AGE = 10 * 60 * 1000 // 10 minutes (per spec)
 
 async function cleanTempFiles() {
   try {

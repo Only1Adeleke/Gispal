@@ -2,12 +2,31 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { storage } from "@/lib/storage"
+import { getMaxCoverArts, isProPlan } from "@/lib/plan-restrictions"
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers })
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const user = await db.users.findById(session.user.id)
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    // Check cover art limit (only for free users)
+    if (!isProPlan(user.plan)) {
+      const existingCoverArts = await db.coverArts.findByUserId(session.user.id)
+      const maxCoverArts = getMaxCoverArts(user.plan)
+      
+      if (existingCoverArts.length >= maxCoverArts) {
+        return NextResponse.json(
+          { error: `Maximum ${maxCoverArts} cover art(s) allowed for your plan. Please delete an existing cover art first.` },
+          { status: 403 }
+        )
+      }
     }
 
     const formData = await request.formData()

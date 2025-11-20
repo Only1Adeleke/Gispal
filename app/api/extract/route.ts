@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
+import { canUseExtractedCoverArt } from "@/lib/plan-restrictions"
 import ytdl from "ytdl-core"
 import { extractCoverArt } from "@/lib/ffmpeg"
 import { tempStorage } from "@/lib/storage"
@@ -18,8 +20,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 })
     }
 
+    // Get user to check plan restrictions
+    const user = await db.users.findById(session.user.id)
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
     let audioBuffer: Buffer
     let coverArtUrl: string | null = null
+    let extractedMetadata: any = {}
 
     // Detect platform and download
     if (ytdl.validateURL(url)) {
@@ -38,10 +47,19 @@ export async function POST(request: NextRequest) {
       }
       audioBuffer = Buffer.concat(chunks)
 
-      // Extract cover art from video thumbnail
-      const thumbnailUrl = info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1]?.url
-      if (thumbnailUrl) {
-        coverArtUrl = thumbnailUrl
+      // Extract metadata
+      extractedMetadata = {
+        title: info.videoDetails.title,
+        artist: info.videoDetails.author?.name,
+        album: info.videoDetails.title,
+      }
+
+      // Extract cover art from video thumbnail (only for Pro users)
+      if (canUseExtractedCoverArt(user.plan)) {
+        const thumbnailUrl = info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1]?.url
+        if (thumbnailUrl) {
+          coverArtUrl = thumbnailUrl
+        }
       }
     } else if (url.includes("audiomack.com")) {
       // Audiomack - would need specific implementation
@@ -61,20 +79,23 @@ export async function POST(request: NextRequest) {
     const audioPath = await tempStorage.save(audioBuffer, audioFilename)
     const audioUrl = `/api/temp/${audioFilename}`
 
-    // Try to extract cover art from audio file
-    try {
-      const coverPath = await extractCoverArt(audioPath)
-      if (coverPath) {
-        const coverFilename = path.basename(coverPath)
-        coverArtUrl = `/api/temp/${coverFilename}`
+    // Try to extract cover art from audio file (only for Pro users)
+    if (canUseExtractedCoverArt(user.plan)) {
+      try {
+        const coverPath = await extractCoverArt(audioPath)
+        if (coverPath) {
+          const coverFilename = path.basename(coverPath)
+          coverArtUrl = `/api/temp/${coverFilename}`
+        }
+      } catch (error) {
+        // Cover art extraction failed, use provided URL if available
       }
-    } catch (error) {
-      // Cover art extraction failed, use provided URL if available
     }
 
     return NextResponse.json({
       audioUrl,
-      coverArtUrl,
+      coverArtUrl: canUseExtractedCoverArt(user.plan) ? coverArtUrl : null,
+      metadata: extractedMetadata,
     })
   } catch (error: any) {
     return NextResponse.json(
