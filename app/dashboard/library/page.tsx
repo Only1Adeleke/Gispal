@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "sonner"
-import { Play, Pause, Download, Copy, Trash2, Loader2, Music } from "lucide-react"
+import { Play, Pause, Download, Copy, Trash2, Loader2, Music, Sliders } from "lucide-react"
 import { format } from "date-fns"
 
 interface Audio {
@@ -25,6 +26,7 @@ interface Audio {
 }
 
 export default function LibraryPage() {
+  const router = useRouter()
   const [audios, setAudios] = useState<Audio[]>([])
   const [loading, setLoading] = useState(true)
   const [playingId, setPlayingId] = useState<string | null>(null)
@@ -224,6 +226,14 @@ export default function LibraryPage() {
                           ) : (
                             <Play className="h-4 w-4" />
                           )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => router.push(`/dashboard/mix/${audio.id}`)}
+                          title="Mix Audio"
+                        >
+                          <Sliders className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"

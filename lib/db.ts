@@ -56,6 +56,7 @@ export interface Audio {
   url: string
   duration: number | null
   createdAt: Date
+  parentId?: string // ID of the original audio if this is a mixed version
 }
 
 // In-memory storage for development
