@@ -7,9 +7,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Progress } from "@/components/ui/progress"
 import { useDropzone } from "react-dropzone"
-import { Upload, Trash2 } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { Upload, Trash2, Music, AlertCircle } from "lucide-react"
+import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 
 interface Jingle {
   id: string
@@ -25,7 +27,8 @@ export default function JinglesPage() {
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const { toast } = useToast()
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [userPlan, setUserPlan] = useState<{ plan: string; jingleCount: number; maxJingles: number } | null>(null)
 
   const fetchJingles = async () => {
     try {
@@ -33,61 +36,83 @@ export default function JinglesPage() {
       if (response.ok) {
         const data = await response.json()
         setJingles(data)
+      } else {
+        toast.error("Failed to fetch jingles")
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch jingles",
-        variant: "destructive",
-      })
+      toast.error("Failed to fetch jingles")
     } finally {
       setLoading(false)
     }
   }
 
+  const fetchUserPlan = async () => {
+    try {
+      const response = await fetch("/api/user/plan")
+      if (response.ok) {
+        const data = await response.json()
+        setUserPlan(data)
+      }
+    } catch (error) {
+      // Fallback - assume free plan
+      setUserPlan({ plan: "free", jingleCount: jingles.length, maxJingles: 1 })
+    }
+  }
+
   useEffect(() => {
     fetchJingles()
+    fetchUserPlan()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const onDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return
 
     const file = acceptedFiles[0]
+    
+    // Check limit
+    if (userPlan && jingles.length >= userPlan.maxJingles) {
+      toast.error(`Maximum ${userPlan.maxJingles} jingle(s) allowed for your plan`)
+      setUploadOpen(false)
+      return
+    }
+
     setUploading(true)
+    setUploadProgress(0)
 
     try {
       const formData = new FormData()
       formData.append("file", file)
       formData.append("name", file.name)
 
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 10, 90))
+      }, 200)
+
       const response = await fetch("/api/jingles/upload", {
         method: "POST",
         body: formData,
       })
 
+      clearInterval(progressInterval)
+      setUploadProgress(100)
+
       if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Jingle uploaded successfully",
-        })
+        toast.success("Jingle uploaded successfully")
         setUploadOpen(false)
+        setUploadProgress(0)
         fetchJingles()
+        fetchUserPlan()
       } else {
         const data = await response.json()
-        toast({
-          title: "Error",
-          description: data.error || "Failed to upload jingle",
-          variant: "destructive",
-        })
+        toast.error(data.error || "Failed to upload jingle")
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to upload jingle",
-        variant: "destructive",
-      })
+      toast.error("Failed to upload jingle")
     } finally {
       setUploading(false)
+      setUploadProgress(0)
     }
   }
 
@@ -97,6 +122,7 @@ export default function JinglesPage() {
       "audio/*": [".mp3", ".wav", ".m4a"],
     },
     maxFiles: 1,
+    disabled: uploading || (userPlan ? jingles.length >= userPlan.maxJingles : false),
   })
 
   const handleDelete = async (id: string) => {
@@ -108,24 +134,14 @@ export default function JinglesPage() {
       })
 
       if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Jingle deleted successfully",
-        })
+        toast.success("Jingle deleted successfully")
         fetchJingles()
+        fetchUserPlan()
       } else {
-        toast({
-          title: "Error",
-          description: "Failed to delete jingle",
-          variant: "destructive",
-        })
+        toast.error("Failed to delete jingle")
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete jingle",
-        variant: "destructive",
-      })
+      toast.error("Failed to delete jingle")
     }
   }
 
@@ -143,6 +159,9 @@ export default function JinglesPage() {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i]
   }
 
+  const isLimitReached = userPlan ? jingles.length >= userPlan.maxJingles : false
+  const isPro = userPlan?.plan !== "free"
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -152,7 +171,7 @@ export default function JinglesPage() {
         </div>
         <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={isLimitReached}>
               <Upload className="w-4 h-4 mr-2" />
               Upload Jingle
             </Button>
@@ -160,81 +179,120 @@ export default function JinglesPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Upload Jingle</DialogTitle>
-              <DialogDescription>Upload an audio file to use as a jingle</DialogDescription>
+              <DialogDescription>
+                Upload an audio file to use as a jingle
+                {!isPro && (
+                  <span className="block mt-2 text-xs text-amber-600">
+                    Free plan: Maximum 1 jingle allowed
+                  </span>
+                )}
+              </DialogDescription>
             </DialogHeader>
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer ${
-                isDragActive ? "border-primary bg-primary/5" : "border-gray-300"
-              }`}
-            >
-              <input {...getInputProps()} />
-              <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              {isDragActive ? (
-                <p>Drop the file here...</p>
-              ) : (
-                <div>
-                  <p className="mb-2">Drag & drop an audio file here, or click to select</p>
-                  <p className="text-sm text-gray-500">MP3, WAV, M4A</p>
+            {isLimitReached ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <AlertCircle className="w-5 h-5" />
+                  <div>
+                    <p className="font-semibold">Limit Reached</p>
+                    <p className="text-sm">
+                      You&apos;ve reached the maximum number of jingles for your plan. 
+                      {!isPro && " Upgrade to Pro for unlimited jingles."}
+                    </p>
+                  </div>
                 </div>
-              )}
-            </div>
-            {uploading && (
-              <div className="text-center text-sm text-gray-600">Uploading...</div>
+              </div>
+            ) : (
+              <>
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer ${
+                    isDragActive ? "border-primary bg-primary/5" : "border-gray-300"
+                  } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  <input {...getInputProps()} />
+                  <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  {isDragActive ? (
+                    <p>Drop the file here...</p>
+                  ) : (
+                    <div>
+                      <p className="mb-2">Drag & drop an audio file here, or click to select</p>
+                      <p className="text-sm text-gray-500">MP3, WAV, M4A</p>
+                    </div>
+                  )}
+                </div>
+                {uploading && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Uploading...</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <Progress value={uploadProgress} />
+                  </div>
+                )}
+              </>
             )}
           </DialogContent>
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Jingles</CardTitle>
-          <CardDescription>All uploaded jingles</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-8">Loading...</div>
-          ) : jingles.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No jingles uploaded yet. Click "Upload Jingle" to get started.
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {jingles.map((jingle) => (
-                  <TableRow key={jingle.id}>
-                    <TableCell className="font-medium">{jingle.name}</TableCell>
-                    <TableCell>{formatDuration(jingle.duration)}</TableCell>
-                    <TableCell>{formatFileSize(jingle.fileSize)}</TableCell>
-                    <TableCell>
-                      {new Date(jingle.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(jingle.id)}
-                      >
-                        <Trash2 className="w-4 h-4 text-red-600" />
-                      </Button>
-                    </TableCell>
+      {userPlan && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Music className="w-5 h-5" />
+              Your Jingles
+            </CardTitle>
+            <CardDescription>
+              {jingles.length} / {userPlan.maxJingles === Infinity ? "∞" : userPlan.maxJingles} jingles
+              {!isPro && " (Free plan limit: 1 jingle)"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-center py-8">Loading...</div>
+            ) : jingles.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Music className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>No jingles uploaded yet.</p>
+                <p className="text-sm mt-2">Click &quot;Upload Jingle&quot; to get started.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead>Uploaded</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {jingles.map((jingle) => (
+                    <TableRow key={jingle.id}>
+                      <TableCell className="font-medium">{jingle.name}</TableCell>
+                      <TableCell>{formatDuration(jingle.duration)}</TableCell>
+                      <TableCell>{formatFileSize(jingle.fileSize)}</TableCell>
+                      <TableCell>
+                        {new Date(jingle.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(jingle.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
-

@@ -45,6 +45,7 @@ export default function CoverArtPage() {
 
   useEffect(() => {
     fetchCoverArts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const onDrop = async (acceptedFiles: File[]) => {
@@ -206,7 +207,7 @@ export default function CoverArtPage() {
       ) : coverArts.length === 0 ? (
         <Card>
           <CardContent className="text-center py-8 text-gray-500">
-            No cover arts uploaded yet. Click "Upload Cover Art" to get started.
+            No cover arts uploaded yet. Click &quot;Upload Cover Art&quot; to get started.
           </CardContent>
         </Card>
       ) : (
@@ -215,6 +216,7 @@ export default function CoverArtPage() {
             <Card key={art.id}>
               <CardContent className="p-4">
                 <div className="relative aspect-square mb-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={art.fileUrl}
                     alt={art.name}

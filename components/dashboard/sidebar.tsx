@@ -7,27 +7,36 @@ import {
   LayoutDashboard,
   Music,
   Image,
-  Mixer,
+  Sliders,
   CreditCard,
   Settings,
   LogOut,
+  History,
+  User,
+  Library,
+  Upload,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/library", label: "Library", icon: Library },
+  { href: "/dashboard/upload", label: "Upload", icon: Upload },
+  { href: "/dashboard/upload-external", label: "Upload External Audio", icon: ExternalLink },
   { href: "/dashboard/jingles", label: "Jingles", icon: Music },
-  { href: "/dashboard/coverart", label: "Cover Art", icon: Image },
-  { href: "/dashboard/mix", label: "Mix", icon: Mixer },
-  { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/cover-art", label: "Cover Art", icon: Image },
+  { href: "/dashboard/mixer", label: "Mixer", icon: Sliders },
+  { href: "/dashboard/history", label: "History", icon: History },
+  { href: "/dashboard/account", label: "Account", icon: User },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
 
   const handleLogout = async () => {
-    await fetch("/api/auth/sign-out", { method: "POST" })
+    const { signOut } = await import("@/lib/auth-client")
+    await signOut()
     window.location.href = "/login"
   }
 

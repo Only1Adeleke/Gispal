@@ -14,8 +14,7 @@ export async function GET() {
 
     const outputPath = await mixAudio({
       audioUrl: silentPath,
-      jinglePath,
-      position: "start",
+      jingles: jinglePath ? [{ path: jinglePath, position: "start" }] : undefined,
       previewOnly: false,
     })
 

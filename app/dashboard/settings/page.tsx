@@ -126,7 +126,7 @@ export default function SettingsPage() {
               </div>
               <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
                 <p className="text-sm text-yellow-800">
-                  <strong>Important:</strong> Save this API key now. You won't be able to see it again.
+                  <strong>Important:</strong> Save this API key now. You won&apos;t be able to see it again.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -139,7 +139,7 @@ export default function SettingsPage() {
           ) : (
             <div className="space-y-4">
               <p className="text-gray-600">
-                You don't have an API key yet. Generate one to start using the WordPress plugin.
+                You don&apos;t have an API key yet. Generate one to start using the WordPress plugin.
               </p>
               <Button onClick={handleGenerate} disabled={loading}>
                 Generate API Key

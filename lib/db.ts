@@ -13,6 +13,8 @@ export interface User {
   planExpiresAt?: Date
   bandwidthUsed: number // in bytes
   bandwidthLimit: number // in bytes
+  role: "admin" | "user"
+  banned: boolean
 }
 
 export interface Jingle {
@@ -47,15 +49,28 @@ export interface Mix {
   createdAt: Date
 }
 
+export interface Audio {
+  id: string
+  title: string
+  tags: string | null
+  url: string
+  duration: number | null
+  createdAt: Date
+}
+
 // In-memory storage for development
 // Replace with actual database in production
 const users: Map<string, User> = new Map()
 const jingles: Map<string, Jingle> = new Map()
 const coverArts: Map<string, CoverArt> = new Map()
 const mixes: Map<string, Mix> = new Map()
+const audios: Map<string, Audio> = new Map()
 
 export const db = {
   users: {
+    findAll: async (): Promise<User[]> => {
+      return Array.from(users.values())
+    },
     findById: async (id: string): Promise<User | null> => {
       return users.get(id) || null
     },
@@ -71,14 +86,16 @@ export const db = {
       }
       return null
     },
-    create: async (data: Omit<User, "id" | "createdAt" | "updatedAt" | "bandwidthUsed">): Promise<User> => {
+    create: async (data: Omit<User, "id" | "createdAt" | "updatedAt" | "bandwidthUsed" | "role" | "banned">, id?: string): Promise<User> => {
       const user: User = {
         ...data,
-        id: crypto.randomUUID(),
+        id: id || crypto.randomUUID(),
         createdAt: new Date(),
         updatedAt: new Date(),
         bandwidthUsed: 0,
         bandwidthLimit: getBandwidthLimit(data.plan),
+        role: "user",
+        banned: false,
       }
       users.set(user.id, user)
       return user
@@ -92,6 +109,9 @@ export const db = {
     },
   },
   jingles: {
+    findAll: async (): Promise<Jingle[]> => {
+      return Array.from(jingles.values())
+    },
     findByUserId: async (userId: string): Promise<Jingle[]> => {
       return Array.from(jingles.values()).filter(j => j.userId === userId)
     },
@@ -112,6 +132,9 @@ export const db = {
     },
   },
   coverArts: {
+    findAll: async (): Promise<CoverArt[]> => {
+      return Array.from(coverArts.values())
+    },
     findByUserId: async (userId: string): Promise<CoverArt[]> => {
       return Array.from(coverArts.values()).filter(c => c.userId === userId)
     },
@@ -145,6 +168,15 @@ export const db = {
     },
   },
   mixes: {
+    findAll: async (): Promise<Mix[]> => {
+      return Array.from(mixes.values())
+    },
+    findByUserId: async (userId: string): Promise<Mix[]> => {
+      return Array.from(mixes.values()).filter(m => m.userId === userId)
+    },
+    findById: async (id: string): Promise<Mix | null> => {
+      return mixes.get(id) || null
+    },
     create: async (data: Omit<Mix, "id" | "createdAt">): Promise<Mix> => {
       const mix: Mix = {
         ...data,
@@ -153,6 +185,31 @@ export const db = {
       }
       mixes.set(mix.id, mix)
       return mix
+    },
+    delete: async (id: string): Promise<void> => {
+      mixes.delete(id)
+    },
+  },
+  audios: {
+    findAll: async (): Promise<Audio[]> => {
+      return Array.from(audios.values()).sort((a, b) => 
+        b.createdAt.getTime() - a.createdAt.getTime()
+      )
+    },
+    findById: async (id: string): Promise<Audio | null> => {
+      return audios.get(id) || null
+    },
+    create: async (data: Omit<Audio, "id" | "createdAt">): Promise<Audio> => {
+      const audio: Audio = {
+        ...data,
+        id: crypto.randomUUID(),
+        createdAt: new Date(),
+      }
+      audios.set(audio.id, audio)
+      return audio
+    },
+    delete: async (id: string): Promise<void> => {
+      audios.delete(id)
     },
   },
 }

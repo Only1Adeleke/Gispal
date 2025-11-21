@@ -1,34 +1,74 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import { auth } from "@/lib/auth"
+
+export const runtime = "nodejs"
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  try {
+    const { pathname } = request.nextUrl
 
-  // Handle Better Auth routes
-  if (pathname.startsWith("/api/auth")) {
-    return auth.handler(request)
-  }
+    // NEVER run middleware on these paths
+    const skipPaths = [
+      "/",
+      "/login",
+      "/register",
+      "/api/auth",
+      "/_next",
+      "/static",
+    ]
 
-  // Protect dashboard routes
-  if (pathname.startsWith("/dashboard")) {
-    try {
-      const session = await auth.api.getSession({
-        headers: request.headers,
-      })
-
-      if (!session) {
-        return NextResponse.redirect(new URL("/login", request.url))
+    // Check if path should be skipped
+    for (const skipPath of skipPaths) {
+      if (pathname === skipPath || pathname.startsWith(skipPath + "/")) {
+        return NextResponse.next()
       }
-    } catch (error) {
-      return NextResponse.redirect(new URL("/login", request.url))
     }
-  }
 
-  return NextResponse.next()
+    // Skip files with extensions (static assets)
+    if (pathname.includes(".") && !pathname.startsWith("/api")) {
+      return NextResponse.next()
+    }
+
+    // Protect dashboard and admin routes only
+    if (pathname.startsWith("/dashboard") || pathname.startsWith("/admin")) {
+      // Better Auth uses "better-auth.session_token" as the default cookie name
+      // Also check for "__session" as fallback
+      const sessionCookie = 
+        request.cookies.get("better-auth.session_token") || 
+        request.cookies.get("__session") ||
+        request.cookies.get("better-auth.session")
+      
+      if (!sessionCookie) {
+        // No session cookie - redirect to login
+        const loginUrl = new URL("/login", request.url)
+        loginUrl.searchParams.set("redirect", pathname)
+        return NextResponse.redirect(loginUrl)
+      }
+
+      // Session cookie exists - allow request
+      return NextResponse.next()
+    }
+
+    // Allow all other requests
+    return NextResponse.next()
+  } catch (error) {
+    console.error("Middleware error:", error)
+    // On error, allow request to proceed
+    return NextResponse.next()
+  }
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/auth/:path*"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/auth (Better Auth routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (public folder)
+     */
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
+  runtime: "nodejs",
 }
-

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { signUp } from "@/lib/auth-client"
+import { Loader2 } from "lucide-react"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -22,42 +24,50 @@ export default function RegisterPage() {
     setError("")
 
     try {
-      const response = await fetch("/api/auth/sign-up/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+      const result = await signUp.email({
+        email,
+        password,
+        name,
       })
 
-      if (response.ok) {
-        router.push("/dashboard")
-        router.refresh()
-      } else {
-        const data = await response.json()
-        setError(data.message || "Registration failed")
+      // Check for errors
+      if (result?.error) {
+        setError(result.error.message || "Registration failed. Please try again.")
+        setLoading(false)
+        return
       }
-    } catch (err) {
-      setError("An error occurred. Please try again.")
-    } finally {
+
+      // Success - redirect to dashboard
+      if (result?.data) {
+        // Use window.location for a full page reload to ensure session is set
+        window.location.href = "/dashboard"
+      } else {
+        // Fallback: if no error and no data, assume success
+        window.location.href = "/dashboard"
+      }
+    } catch (err: any) {
+      console.error("Registration error:", err)
+      setError(err.message || "An error occurred. Please try again.")
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Create an account</CardTitle>
+        <CardHeader className="space-y-1 text-center">
+          <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
           <CardDescription>Sign up to get started with Gispal</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
                 {error}
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
                 type="text"
@@ -65,6 +75,8 @@ export default function RegisterPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                disabled={loading}
+                className="h-11"
               />
             </div>
             <div className="space-y-2">
@@ -76,6 +88,8 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={loading}
+                className="h-11"
               />
             </div>
             <div className="space-y-2">
@@ -83,20 +97,33 @@ export default function RegisterPage() {
               <Input
                 id="password"
                 type="password"
+                placeholder="At least 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={8}
+                disabled={loading}
+                className="h-11"
               />
+              <p className="text-xs text-muted-foreground">
+                Password must be at least 8 characters long
+              </p>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Creating account..." : "Sign up"}
+            <Button type="submit" className="w-full h-11" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                "Sign up"
+              )}
             </Button>
-            <p className="text-sm text-center text-gray-600">
+            <p className="text-sm text-center text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/login" className="text-primary hover:underline">
+              <Link href="/login" className="text-primary hover:underline font-medium">
                 Login
               </Link>
             </p>

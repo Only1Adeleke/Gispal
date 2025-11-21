@@ -75,7 +75,7 @@ export async function initializePayment(
         planId,
         userId,
       },
-      callback_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing/callback`,
+      callback_url: `${process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/billing/callback`,
     },
     {
       headers: {

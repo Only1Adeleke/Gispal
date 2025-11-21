@@ -68,9 +68,8 @@ export async function POST(request: NextRequest) {
     // Mix audio
     const outputPath = await mixAudio({
       audioUrl,
-      jinglePath,
+      jingles: jinglePath ? [{ path: jinglePath, position: position || "start" }] : undefined,
       coverArtPath,
-      position: position || "start",
       previewOnly: false,
     })
 
