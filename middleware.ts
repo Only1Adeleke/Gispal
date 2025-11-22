@@ -29,23 +29,38 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next()
     }
 
-    // Protect dashboard and admin routes only
-    if (pathname.startsWith("/dashboard") || pathname.startsWith("/admin")) {
-      // Better Auth uses "better-auth.session_token" as the default cookie name
-      // Also check for "__session" as fallback
+    // Protect dashboard routes - require authentication
+    if (pathname.startsWith("/dashboard")) {
       const sessionCookie = 
         request.cookies.get("better-auth.session_token") || 
         request.cookies.get("__session") ||
         request.cookies.get("better-auth.session")
       
       if (!sessionCookie) {
-        // No session cookie - redirect to login
         const loginUrl = new URL("/login", request.url)
         loginUrl.searchParams.set("redirect", pathname)
         return NextResponse.redirect(loginUrl)
       }
 
-      // Session cookie exists - allow request
+      return NextResponse.next()
+    }
+
+    // Protect admin routes - require authentication
+    // Admin role check happens in admin layout via requireAdmin()
+    if (pathname.startsWith("/admin")) {
+      const sessionCookie = 
+        request.cookies.get("better-auth.session_token") || 
+        request.cookies.get("__session") ||
+        request.cookies.get("better-auth.session")
+      
+      if (!sessionCookie) {
+        const loginUrl = new URL("/login", request.url)
+        loginUrl.searchParams.set("redirect", pathname)
+        return NextResponse.redirect(loginUrl)
+      }
+
+      // Admin role check happens in admin layout via requireAdmin()
+      // Middleware just ensures user is authenticated
       return NextResponse.next()
     }
 

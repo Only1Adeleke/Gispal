@@ -1,9 +1,20 @@
 import { Suspense } from "react"
+import dynamic from "next/dynamic"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/db"
-import { AdminStatsCards } from "@/components/admin/stats-cards"
-import { AdminCharts } from "@/components/admin/charts"
-import { AdminRecentUsers } from "@/components/admin/recent-users"
+
+// Dynamic imports for client components
+const AdminStatsCards = dynamic(() => import("@/components/admin/stats-cards").then(mod => ({ default: mod.AdminStatsCards })), {
+  ssr: false,
+})
+
+const AdminCharts = dynamic(() => import("@/components/admin/charts").then(mod => ({ default: mod.AdminCharts })), {
+  ssr: false,
+})
+
+const AdminRecentUsers = dynamic(() => import("@/components/admin/recent-users").then(mod => ({ default: mod.AdminRecentUsers })), {
+  ssr: false,
+})
 
 export default async function AdminOverviewPage() {
   // Fetch real data from database

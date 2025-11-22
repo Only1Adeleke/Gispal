@@ -81,8 +81,11 @@ export function AdminUsersTable({
   const [plan, setPlan] = React.useState(initialPlan || "")
   const [banned, setBanned] = React.useState(initialBanned || "")
   const [selectedUser, setSelectedUser] = React.useState<any>(null)
+  const [userDetails, setUserDetails] = React.useState<any>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [detailsDialogOpen, setDetailsDialogOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
+  const [detailsLoading, setDetailsLoading] = React.useState(false)
 
   // Update URL and refetch when filters change
   const updateFilters = React.useCallback(
@@ -137,11 +140,10 @@ export function AdminUsersTable({
   const handleUpgrade = async (userId: string) => {
     setLoading(true)
     try {
-      const response = await fetch("/api/admin/users", {
-        method: "PATCH",
+      const response = await fetch(`/api/admin/user/${userId}/upgrade`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           plan: "monthly_unlimited",
         }),
       })
@@ -162,31 +164,75 @@ export function AdminUsersTable({
     }
   }
 
-  const handleBan = async (userId: string) => {
+  const handleDowngrade = async (userId: string) => {
     setLoading(true)
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await fetch(`/api/admin/user/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
-          banned: true,
+          plan: "free",
         }),
       })
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || "Failed to ban user")
+        throw new Error(error.error || "Failed to downgrade user")
       }
 
       const updated = await response.json()
       setUsers(users.map((u) => (u.id === userId ? updated : u)))
-      toast.success("User banned")
+      toast.success("User downgraded to Free")
       router.refresh()
     } catch (error: any) {
-      toast.error(error.message || "Failed to ban user")
+      toast.error(error.message || "Failed to downgrade user")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleBan = async (userId: string, ban: boolean = true) => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/admin/user/${userId}/ban`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          banned: ban,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || `Failed to ${ban ? "ban" : "unban"} user`)
+      }
+
+      const updated = await response.json()
+      setUsers(users.map((u) => (u.id === userId ? updated : u)))
+      toast.success(`User ${ban ? "banned" : "unbanned"}`)
+      router.refresh()
+    } catch (error: any) {
+      toast.error(error.message || `Failed to ${ban ? "ban" : "unban"} user`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleViewDetails = async (userId: string) => {
+    setDetailsLoading(true)
+    setDetailsDialogOpen(true)
+    try {
+      const response = await fetch(`/api/admin/user/${userId}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch user details")
+      }
+      const data = await response.json()
+      setUserDetails(data)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load user details")
+      setDetailsDialogOpen(false)
+    } finally {
+      setDetailsLoading(false)
     }
   }
 
@@ -221,7 +267,7 @@ export function AdminUsersTable({
   const handleDelete = async (userId: string) => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/admin/users?userId=${userId}`, {
+      const response = await fetch(`/api/admin/user/${userId}/delete`, {
         method: "DELETE",
       })
 
@@ -356,14 +402,19 @@ export function AdminUsersTable({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewDetails(user.id)}>
                             <Eye className="mr-2 h-4 w-4" />
                             View Details
                           </DropdownMenuItem>
-                          {user.plan === "free" && (
+                          {user.plan === "free" ? (
                             <DropdownMenuItem onClick={() => handleUpgrade(user.id)}>
                               <ArrowUp className="mr-2 h-4 w-4" />
                               Upgrade to Pro
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => handleDowngrade(user.id)}>
+                              <ArrowUp className="mr-2 h-4 w-4 rotate-180" />
+                              Downgrade to Free
                             </DropdownMenuItem>
                           )}
                           {user.role !== "admin" && (
@@ -373,8 +424,13 @@ export function AdminUsersTable({
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
-                          {!user.banned && (
-                            <DropdownMenuItem onClick={() => handleBan(user.id)}>
+                          {user.banned ? (
+                            <DropdownMenuItem onClick={() => handleBan(user.id, false)}>
+                              <Ban className="mr-2 h-4 w-4" />
+                              Unban User
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => handleBan(user.id, true)}>
                               <Ban className="mr-2 h-4 w-4" />
                               Ban User
                             </DropdownMenuItem>
@@ -482,6 +538,95 @@ export function AdminUsersTable({
               disabled={loading}
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>User Details</DialogTitle>
+            <DialogDescription>
+              Complete information about {userDetails?.email || "this user"}
+            </DialogDescription>
+          </DialogHeader>
+          {detailsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : userDetails ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Email</label>
+                  <p className="text-sm font-medium">{userDetails.email}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Name</label>
+                  <p className="text-sm font-medium">{userDetails.name || "N/A"}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Plan</label>
+                  <Badge variant={userDetails.plan === "free" ? "secondary" : "default"}>
+                    {userDetails.plan === "free" ? "Free" : "Pro"}
+                  </Badge>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Role</label>
+                  <Badge variant={userDetails.role === "admin" ? "default" : "outline"}>
+                    {userDetails.role}
+                  </Badge>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Status</label>
+                  <Badge variant={userDetails.banned ? "destructive" : "default"}>
+                    {userDetails.banned ? "Banned" : "Active"}
+                  </Badge>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Joined</label>
+                  <p className="text-sm font-medium">
+                    {format(new Date(userDetails.createdAt), "MMM dd, yyyy")}
+                  </p>
+                </div>
+              </div>
+              {userDetails.stats && (
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-semibold mb-2">Statistics</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Jingles</label>
+                      <p className="text-sm font-medium">{userDetails.stats.jingles}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Cover Arts</label>
+                      <p className="text-sm font-medium">{userDetails.stats.coverArts}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Mixes</label>
+                      <p className="text-sm font-medium">{userDetails.stats.mixes}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Total Mixes</label>
+                      <p className="text-sm font-medium">{userDetails.stats.totalMixes}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Total Uploads</label>
+                      <p className="text-sm font-medium">{userDetails.stats.totalUploads}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Total Downloads</label>
+                      <p className="text-sm font-medium">{userDetails.stats.totalDownloads}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

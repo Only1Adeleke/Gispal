@@ -1,7 +1,12 @@
 import { Suspense } from "react"
+import dynamic from "next/dynamic"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AdminSystemOverview } from "@/components/admin/system-overview"
 import { db } from "@/lib/db"
+
+// Dynamic import for client component
+const AdminSystemOverview = dynamic(() => import("@/components/admin/system-overview").then(mod => ({ default: mod.AdminSystemOverview })), {
+  ssr: false,
+})
 
 export default async function AdminSystemPage() {
   const jingles = await db.jingles.findAll()

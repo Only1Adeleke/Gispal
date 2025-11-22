@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireAdmin } from "@/lib/admin-auth"
+import { checkAdmin } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get("page") || "1")
@@ -71,7 +74,10 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const { searchParams } = new URL(request.url)
     const mixId = searchParams.get("mixId")

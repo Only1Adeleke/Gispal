@@ -1,6 +1,11 @@
 import { Suspense } from "react"
-import { AdminFilesTable } from "@/components/admin/files-table"
+import dynamic from "next/dynamic"
 import { db } from "@/lib/db"
+
+// Dynamic import for client component
+const AdminFilesTable = dynamic(() => import("@/components/admin/files-table").then(mod => ({ default: mod.AdminFilesTable })), {
+  ssr: false,
+})
 
 interface AdminFilesPageProps {
   searchParams: {

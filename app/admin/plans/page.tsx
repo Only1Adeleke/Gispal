@@ -1,6 +1,11 @@
 import { Suspense } from "react"
-import { AdminPlansOverview } from "@/components/admin/plans-overview"
+import dynamic from "next/dynamic"
 import { db } from "@/lib/db"
+
+// Dynamic import for client component
+const AdminPlansOverview = dynamic(() => import("@/components/admin/plans-overview").then(mod => ({ default: mod.AdminPlansOverview })), {
+  ssr: false,
+})
 
 // Server-side data fetching - for now return default limits
 // In production, fetch from database or config

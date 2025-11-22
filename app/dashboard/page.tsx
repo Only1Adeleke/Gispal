@@ -1,13 +1,18 @@
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
+import dynamic from "next/dynamic"
 import { auth } from "@/lib/auth"
 import { db, User } from "@/lib/db"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { UpgradeDialog } from "@/components/dashboard/upgrade-dialog"
 import { isProPlan, getMaxJingles, getMaxCoverArts } from "@/lib/plan-restrictions"
 import { Music, Image, Clock, Zap } from "lucide-react"
+
+// Dynamic import for client component
+const UpgradeDialog = dynamic(() => import("@/components/dashboard/upgrade-dialog").then(mod => ({ default: mod.UpgradeDialog })), {
+  ssr: false,
+})
 
 export default async function DashboardPage() {
   // Get session from headers
@@ -51,10 +56,11 @@ export default async function DashboardPage() {
     }
   }
 
-  // Redirect admins to admin dashboard
-  if (user.role === "admin") {
-    redirect("/admin")
-  }
+  // Allow admins to access dashboard in preview mode
+  // They can access it via the "Preview User Mode" button in admin sidebar
+  // Only redirect if they're directly accessing /dashboard without coming from admin
+  // For now, we'll allow admins to access dashboard
+  // The admin sidebar has a "Preview User Mode" button that links to /dashboard
 
   // Safely get user data with defaults
   const jingles = (await db.jingles.findByUserId(userId)) || []

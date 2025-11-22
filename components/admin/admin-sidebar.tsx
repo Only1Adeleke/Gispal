@@ -80,6 +80,21 @@ export function AdminSidebar() {
             )
           })}
         </nav>
+
+        {/* Preview User Mode Button */}
+        <div className="border-t p-4">
+          <Link
+            href="/dashboard"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              isCollapsed && "justify-center"
+            )}
+            title={isCollapsed ? "Preview User Mode" : undefined}
+          >
+            <LayoutDashboard className="h-5 w-5 shrink-0" />
+            {!isCollapsed && <span>Preview User Mode</span>}
+          </Link>
+        </div>
       </div>
     </div>
   )

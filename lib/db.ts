@@ -135,6 +135,9 @@ export const db = {
       users.set(id, updated)
       return updated
     },
+    delete: async (id: string): Promise<void> => {
+      users.delete(id)
+    },
   },
   jingles: {
     findAll: async (): Promise<Jingle[]> => {
@@ -323,6 +326,12 @@ export const db = {
       return userUsage.history.filter(
         h => h.type === type && h.timestamp >= todayTimestamp
       ).length
+    },
+    delete: async (userId: string): Promise<void> => {
+      usage.delete(userId)
+    },
+    findById: async (userId: string): Promise<Usage | null> => {
+      return usage.get(userId) || null
     },
   },
 }

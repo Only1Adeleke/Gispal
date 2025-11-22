@@ -1,6 +1,10 @@
-import { redirect } from "next/navigation"
-import { AdminSidebar } from "@/components/admin/admin-sidebar"
+import dynamic from "next/dynamic"
 import { requireAdmin } from "@/lib/admin-auth"
+
+// Dynamic import for client component
+const AdminSidebar = dynamic(() => import("@/components/admin/admin-sidebar").then(mod => ({ default: mod.AdminSidebar })), {
+  ssr: false,
+})
 
 export default async function AdminLayout({
   children,
@@ -8,13 +12,8 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   // Check admin access - this will redirect if not admin
-  try {
-    await requireAdmin()
-  } catch (error) {
-    // requireAdmin() throws redirect, so this should not be reached
-    // But if it does, redirect to dashboard
-    redirect("/dashboard")
-  }
+  // requireAdmin() throws redirect() which Next.js handles automatically
+  await requireAdmin()
 
   return (
     <div className="flex h-screen overflow-hidden">

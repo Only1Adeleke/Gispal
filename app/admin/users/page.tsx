@@ -1,6 +1,11 @@
 import { Suspense } from "react"
-import { AdminUsersTable } from "@/components/admin/users-table"
+import dynamic from "next/dynamic"
 import { db } from "@/lib/db"
+
+// Dynamic import for client component
+const AdminUsersTable = dynamic(() => import("@/components/admin/users-table").then(mod => ({ default: mod.AdminUsersTable })), {
+  ssr: false,
+})
 
 interface AdminUsersPageProps {
   searchParams: {

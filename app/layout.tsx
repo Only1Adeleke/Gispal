@@ -1,8 +1,16 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { Toaster } from "@/components/ui/toaster"
-import { Toaster as SonnerToaster } from "@/components/ui/sonner"
+import dynamic from "next/dynamic"
+
+// Dynamic import for client-only components
+const Toaster = dynamic(() => import("@/components/ui/toaster").then(mod => ({ default: mod.Toaster })), {
+  ssr: false,
+})
+
+const SonnerToaster = dynamic(() => import("@/components/ui/sonner").then(mod => ({ default: mod.Toaster })), {
+  ssr: false,
+})
 
 const inter = Inter({ 
   subsets: ["latin"],

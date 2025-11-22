@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireAdmin } from "@/lib/admin-auth"
+import { checkAdmin } from "@/lib/admin-auth"
 
 // Plan limits configuration
 // In production, store this in a database
@@ -26,7 +26,10 @@ let planLimits = {
 
 export async function GET() {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     return NextResponse.json(planLimits)
   } catch (error: any) {
     return NextResponse.json(
@@ -38,7 +41,10 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const body = await request.json()
     const { plan, limits } = body

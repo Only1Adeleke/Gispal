@@ -1,6 +1,11 @@
 import { Suspense } from "react"
-import { AdminMixesTable } from "@/components/admin/mixes-table"
+import dynamic from "next/dynamic"
 import { db } from "@/lib/db"
+
+// Dynamic import for client component
+const AdminMixesTable = dynamic(() => import("@/components/admin/mixes-table").then(mod => ({ default: mod.AdminMixesTable })), {
+  ssr: false,
+})
 
 interface AdminMixesPageProps {
   searchParams: {

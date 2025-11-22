@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireAdmin } from "@/lib/admin-auth"
+import { checkAdmin } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get("page") || "1")
@@ -78,7 +81,10 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const body = await request.json()
     const { userId, ...updates } = body
@@ -111,7 +117,10 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await requireAdmin()
+    const adminCheck = await checkAdmin()
+    if (!adminCheck) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
@@ -123,20 +132,19 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // Prevent deleting yourself
+    if (userId === adminCheck.user.id) {
+      return NextResponse.json(
+        { error: "Cannot delete your own account" },
+        { status: 400 }
+      )
+    }
+
     const user = await db.users.findById(userId)
     if (!user) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
-      )
-    }
-
-    // Prevent deleting yourself
-    const { user: adminUser } = await requireAdmin()
-    if (userId === adminUser.id) {
-      return NextResponse.json(
-        { error: "Cannot delete your own account" },
-        { status: 400 }
       )
     }
 
@@ -156,10 +164,11 @@ export async function DELETE(request: NextRequest) {
       await db.mixes.delete(mix.id)
     }
 
-    // Note: In a real database, you'd use a transaction or cascade delete
-    // For now, we'll just remove from the map
-    const users = (db.users as any).users || new Map()
-    users.delete(userId)
+    // Delete user's usage data
+    await db.usage.delete(userId)
+
+    // Delete user
+    await db.users.delete(userId)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
