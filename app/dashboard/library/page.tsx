@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -12,9 +14,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import { Play, Pause, Download, Copy, Trash2, Loader2, Music, Sliders } from "lucide-react"
+import { Download, Copy, Trash2, Loader2, Music, Sliders, Upload as UploadIcon, Eye } from "lucide-react"
 import { format } from "date-fns"
+
+// Dynamic import with SSR disabled for AudioPlayer
+const AudioPlayer = dynamic(() => import("@/components/audio/Player").then(mod => ({ default: mod.AudioPlayer })), {
+  ssr: false,
+  loading: () => (
+    <Card className="p-4">
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    </Card>
+  ),
+})
 
 interface Audio {
   id: string
@@ -29,8 +45,8 @@ export default function LibraryPage() {
   const router = useRouter()
   const [audios, setAudios] = useState<Audio[]>([])
   const [loading, setLoading] = useState(true)
-  const [playingId, setPlayingId] = useState<string | null>(null)
-  const [audioElements, setAudioElements] = useState<Map<string, HTMLAudioElement>>(new Map())
+  const [previewAudio, setPreviewAudio] = useState<Audio | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   useEffect(() => {
     fetchAudios()
@@ -52,35 +68,9 @@ export default function LibraryPage() {
     }
   }
 
-  const handlePlay = (audio: Audio) => {
-    // Stop any currently playing audio
-    if (playingId) {
-      const currentAudio = audioElements.get(playingId)
-      if (currentAudio) {
-        currentAudio.pause()
-        currentAudio.currentTime = 0
-      }
-    }
-
-    // Play the selected audio
-    let audioElement = audioElements.get(audio.id)
-    if (!audioElement) {
-      audioElement = new Audio(audio.url)
-      audioElement.addEventListener("ended", () => {
-        setPlayingId(null)
-      })
-      setAudioElements((prev) => new Map(prev).set(audio.id, audioElement!))
-    }
-
-    if (playingId === audio.id) {
-      // Pause if already playing
-      audioElement.pause()
-      setPlayingId(null)
-    } else {
-      // Play new audio
-      audioElement.play()
-      setPlayingId(audio.id)
-    }
+  const handlePreview = (audio: Audio) => {
+    setPreviewAudio(audio)
+    setPreviewOpen(true)
   }
 
   const handleDownload = (audio: Audio) => {
@@ -113,18 +103,14 @@ export default function LibraryPage() {
         throw new Error("Failed to delete audio")
       }
 
-      // Stop playing if this audio is currently playing
-      if (playingId === audioId) {
-        const audioElement = audioElements.get(audioId)
-        if (audioElement) {
-          audioElement.pause()
-          setPlayingId(null)
-        }
+      // Close preview if this audio is being previewed
+      if (previewAudio?.id === audioId) {
+        setPreviewOpen(false)
+        setPreviewAudio(null)
       }
 
       // Remove from state
       setAudios(audios.filter((a) => a.id !== audioId))
-      audioElements.delete(audioId)
       toast.success("Audio deleted successfully")
     } catch (error: any) {
       console.error("Error deleting audio:", error)
@@ -141,131 +127,189 @@ export default function LibraryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Audio Library</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold tracking-tight">Audio Library</h1>
+          <p className="text-muted-foreground mt-1.5">
             Manage your uploaded audio files
           </p>
         </div>
-        <Button onClick={() => window.location.href = "/dashboard/upload"}>
-          <Music className="mr-2 h-4 w-4" />
-          Upload Audio
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => router.push("/dashboard/upload-external")}
+          >
+            <UploadIcon className="mr-2 h-4 w-4" />
+            External
+          </Button>
+          <Button onClick={() => router.push("/dashboard/upload")}>
+            <UploadIcon className="mr-2 h-4 w-4" />
+            Upload Audio
+          </Button>
+        </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>All Audio Files</CardTitle>
-          <CardDescription>
-            View, play, download, and manage your audio files
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>All Audio Files</CardTitle>
+              <CardDescription>
+                View, play, download, and manage your audio files
+              </CardDescription>
+            </div>
+            {!loading && audios.length > 0 && (
+              <Badge variant="secondary" className="text-sm">
+                {audios.length} {audios.length === 1 ? "file" : "files"}
+              </Badge>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center space-x-4">
+                  <Skeleton className="h-12 w-12 rounded" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-[250px]" />
+                    <Skeleton className="h-4 w-[200px]" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : audios.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Music className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No audio files yet.</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => window.location.href = "/dashboard/upload"}
-              >
-                Upload Your First Audio
-              </Button>
+            <div className="text-center py-12">
+              <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Music className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No audio files yet</h3>
+              <p className="text-muted-foreground mb-6">
+                Get started by uploading your first audio file
+              </p>
+              <div className="flex gap-2 justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/dashboard/upload-external")}
+                >
+                  <UploadIcon className="mr-2 h-4 w-4" />
+                  Import from URL
+                </Button>
+                <Button
+                  onClick={() => router.push("/dashboard/upload")}
+                >
+                  <UploadIcon className="mr-2 h-4 w-4" />
+                  Upload File
+                </Button>
+              </div>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Tags</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {audios.map((audio) => (
-                  <TableRow key={audio.id}>
-                    <TableCell className="font-medium">{audio.title}</TableCell>
-                    <TableCell>
-                      {audio.tags ? (
-                        <div className="flex flex-wrap gap-1">
-                          {audio.tags.split(",").map((tag, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-1 text-xs bg-secondary rounded"
-                            >
-                              {tag.trim()}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDuration(audio.duration)}</TableCell>
-                    <TableCell>
-                      {format(new Date(audio.createdAt), "MMM dd, yyyy")}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handlePlay(audio)}
-                          title={playingId === audio.id ? "Pause" : "Play"}
-                        >
-                          {playingId === audio.id ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => router.push(`/dashboard/mix/${audio.id}`)}
-                          title="Mix Audio"
-                        >
-                          <Sliders className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownload(audio)}
-                          title="Download"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleCopyEmbed(audio)}
-                          title="Copy Embed Code"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(audio.id)}
-                          title="Delete"
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[300px]">Title</TableHead>
+                    <TableHead>Tags</TableHead>
+                    <TableHead className="w-[100px]">Duration</TableHead>
+                    <TableHead className="w-[120px]">Uploaded</TableHead>
+                    <TableHead className="text-right w-[200px]">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {audios.map((audio) => (
+                    <TableRow key={audio.id} className="hover:bg-muted/50">
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <Music className="h-4 w-4 text-muted-foreground" />
+                          <span className="truncate max-w-[280px]" title={audio.title}>
+                            {audio.title}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {audio.tags ? (
+                          <div className="flex flex-wrap gap-1">
+                            {audio.tags.split(",").slice(0, 3).map((tag, idx) => (
+                              <Badge
+                                key={idx}
+                                variant="secondary"
+                                className="text-xs"
+                              >
+                                {tag.trim()}
+                              </Badge>
+                            ))}
+                            {audio.tags.split(",").length > 3 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{audio.tags.split(",").length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {formatDuration(audio.duration)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {format(new Date(audio.createdAt), "MMM dd, yyyy")}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handlePreview(audio)}
+                            title="Preview Audio"
+                            className="h-8 w-8"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => router.push(`/dashboard/mix/${audio.id}`)}
+                            title="Mix Audio"
+                            className="h-8 w-8"
+                          >
+                            <Sliders className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownload(audio)}
+                            title="Download"
+                            className="h-8 w-8"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleCopyEmbed(audio)}
+                            title="Copy Embed Code"
+                            className="h-8 w-8"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(audio.id)}
+                            title="Delete"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

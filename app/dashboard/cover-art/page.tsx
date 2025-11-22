@@ -168,10 +168,10 @@ export default function CoverArtPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Cover Art</h1>
-          <p className="text-gray-600 mt-2">Manage your cover art images</p>
+          <h1 className="text-3xl font-bold tracking-tight">Cover Art</h1>
+          <p className="text-muted-foreground mt-1.5">Manage your cover art images</p>
         </div>
         <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogTrigger asChild>
@@ -220,7 +220,7 @@ export default function CoverArtPage() {
                   ) : (
                     <div>
                       <p className="mb-2">Drag & drop an image here, or click to select</p>
-                      <p className="text-sm text-gray-500">JPG, PNG</p>
+                      <p className="text-sm text-muted-foreground">JPG, PNG</p>
                     </div>
                   )}
                 </div>
@@ -265,10 +265,14 @@ export default function CoverArtPage() {
               {loading ? (
                 <div className="text-center py-8">Loading...</div>
               ) : coverArts.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <ImageIcon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>No cover arts uploaded yet.</p>
-                  <p className="text-sm mt-2">Click &quot;Upload Cover Art&quot; to get started.</p>
+                <div className="text-center py-12">
+                  <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">No cover arts uploaded yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Click &quot;Upload Cover Art&quot; to get started.
+                  </p>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -292,7 +296,7 @@ export default function CoverArtPage() {
                           <div>
                             <p className="font-medium">{art.name}</p>
                             {art.isDefault && (
-                              <p className="text-sm text-gray-500">Default</p>
+                              <Badge variant="default" className="text-xs">Default</Badge>
                             )}
                           </div>
                           <div className="flex gap-2">
@@ -343,9 +347,12 @@ export default function CoverArtPage() {
                   <Button>Use This Cover Art</Button>
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No extracted cover art available.</p>
-                  <p className="text-sm mt-2">
+                <div className="text-center py-12">
+                  <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">No extracted cover art available</h3>
+                  <p className="text-muted-foreground mb-6">
                     Extract cover art by converting a YouTube or Audiomack URL in the Mixer.
                   </p>
                 </div>
@@ -367,7 +374,7 @@ export default function CoverArtPage() {
                 <Button onClick={handleWordPressUpload}>
                   Upload from WordPress
                 </Button>
-                <p className="text-sm text-gray-500 mt-4">
+                <p className="text-sm text-muted-foreground mt-4">
                   This feature requires the WordPress plugin to be installed.
                 </p>
               </div>

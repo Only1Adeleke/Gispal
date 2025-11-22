@@ -96,10 +96,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-gray-600 mt-2">Welcome back, {safeUser.name || safeUser.email}!</p>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1.5">
+            Welcome back, <span className="font-medium text-foreground">{safeUser.name || safeUser.email}</span>!
+          </p>
         </div>
         {!isPro && (
           <UpgradeDialog />

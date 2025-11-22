@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { useDropzone } from "react-dropzone"
-import { Upload, Trash2, Music, AlertCircle } from "lucide-react"
+import { Upload, Trash2, Music, AlertCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 
@@ -164,10 +164,10 @@ export default function JinglesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Jingles</h1>
-          <p className="text-gray-600 mt-2">Manage your audio jingles</p>
+          <h1 className="text-3xl font-bold tracking-tight">Jingles</h1>
+          <p className="text-muted-foreground mt-1.5">Manage your audio jingles</p>
         </div>
         <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogTrigger asChild>
@@ -216,7 +216,7 @@ export default function JinglesPage() {
                   ) : (
                     <div>
                       <p className="mb-2">Drag & drop an audio file here, or click to select</p>
-                      <p className="text-sm text-gray-500">MP3, WAV, M4A</p>
+                      <p className="text-sm text-muted-foreground">MP3, WAV, M4A</p>
                     </div>
                   )}
                 </div>
@@ -249,12 +249,18 @@ export default function JinglesPage() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-center py-8">Loading...</div>
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
             ) : jingles.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Music className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p>No jingles uploaded yet.</p>
-                <p className="text-sm mt-2">Click &quot;Upload Jingle&quot; to get started.</p>
+              <div className="text-center py-12">
+                <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <Music className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">No jingles uploaded yet</h3>
+                <p className="text-muted-foreground mb-6">
+                  Click &quot;Upload Jingle&quot; to get started
+                </p>
               </div>
             ) : (
               <Table>

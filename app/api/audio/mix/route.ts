@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { getAudioDuration } from "@/lib/ffmpeg"
+import { checkLimits, checkJingleDurationLimit } from "@/lib/billing"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
 import fs from "fs/promises"
@@ -57,6 +58,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get user and check limits
+    const user = await db.users.findById(session.user.id)
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      )
+    }
+
+    const userUsage = await db.usage.getOrCreate(session.user.id)
+    const limits = checkLimits(user, userUsage)
+
+    if (!limits.canMix) {
+      return NextResponse.json(
+        { error: limits.reason || "Mixing limit reached" },
+        { status: 403 }
+      )
+    }
+
     // Fetch audio and jingle from database
     const audio = await db.audios.findById(audioId)
     if (!audio) {
@@ -72,6 +92,17 @@ export async function POST(request: NextRequest) {
         { error: "Jingle not found" },
         { status: 404 }
       )
+    }
+
+    // Check jingle duration limit for free tier
+    if (jingle.duration) {
+      const jingleLimit = checkJingleDurationLimit(user.plan, jingle.duration)
+      if (!jingleLimit.allowed) {
+        return NextResponse.json(
+          { error: jingleLimit.reason || "Jingle duration limit exceeded" },
+          { status: 403 }
+        )
+      }
     }
 
     // Get file paths
@@ -178,6 +209,15 @@ export async function POST(request: NextRequest) {
                 url: `/uploads/${outputFilename}`,
                 duration: Math.round(mixedDuration),
                 parentId: audioId,
+              })
+
+              // Record usage
+              await db.usage.record(session.user.id, "mix", {
+                audioId: mixedAudio.id,
+                parentId: audioId,
+                jingleId,
+                position,
+                volume,
               })
 
               resolve(NextResponse.json(mixedAudio))

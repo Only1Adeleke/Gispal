@@ -16,18 +16,32 @@ import {
   Library,
   Upload,
   ExternalLink,
+  Key,
+  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+const mainNavItems = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+]
+
+const libraryNavItems = [
   { href: "/dashboard/library", label: "Library", icon: Library },
   { href: "/dashboard/upload", label: "Upload", icon: Upload },
-  { href: "/dashboard/upload-external", label: "Upload External Audio", icon: ExternalLink },
+  { href: "/dashboard/upload-external", label: "External Audio", icon: ExternalLink },
+]
+
+const audioNavItems = [
   { href: "/dashboard/jingles", label: "Jingles", icon: Music },
   { href: "/dashboard/cover-art", label: "Cover Art", icon: Image },
   { href: "/dashboard/mixer", label: "Mixer", icon: Sliders },
+]
+
+const accountNavItems = [
+  { href: "/dashboard/billing", label: "Billing & Usage", icon: CreditCard },
   { href: "/dashboard/history", label: "History", icon: History },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/account", label: "Account", icon: User },
 ]
 
@@ -40,40 +54,70 @@ export function Sidebar() {
     window.location.href = "/login"
   }
 
-  return (
-    <div className="w-64 bg-gray-900 text-white min-h-screen p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Gispal</h1>
-      </div>
-      <nav className="space-y-2">
-        {navItems.map((item) => {
+  const renderNavGroup = (items: typeof mainNavItems, groupLabel?: string) => {
+    return (
+      <div className="space-y-1">
+        {groupLabel && (
+          <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            {groupLabel}
+          </div>
+        )}
+        {items.map((item) => {
           const Icon = item.icon
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href))
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors",
+                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-gray-800 text-white"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-gray-300 hover:bg-gray-800 hover:text-white"
               )}
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="w-4 h-4" />
               <span>{item.label}</span>
             </Link>
           )
         })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-64 bg-gray-900 text-white min-h-screen border-r border-gray-800 flex flex-col">
+      <div className="p-6 border-b border-gray-800">
+        <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+          Gispal
+        </h1>
+        <p className="text-xs text-gray-400 mt-1">Audio Mixing Platform</p>
+      </div>
+      
+      <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
+        {renderNavGroup(mainNavItems)}
+        
+        <Separator className="bg-gray-800" />
+        
+        {renderNavGroup(libraryNavItems, "Library")}
+        
+        <Separator className="bg-gray-800" />
+        
+        {renderNavGroup(audioNavItems, "Audio Tools")}
+        
+        <Separator className="bg-gray-800" />
+        
+        {renderNavGroup(accountNavItems, "Account")}
       </nav>
-      <div className="mt-8 pt-8 border-t border-gray-800">
+      
+      <div className="p-4 border-t border-gray-800">
         <Button
           variant="ghost"
-          className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800"
+          className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
           onClick={handleLogout}
         >
-          <LogOut className="w-5 h-5 mr-3" />
-          Logout
+          <LogOut className="w-4 h-4 mr-3" />
+          <span className="text-sm font-medium">Logout</span>
         </Button>
       </div>
     </div>

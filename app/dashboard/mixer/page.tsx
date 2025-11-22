@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { useDropzone } from "react-dropzone"
-import { Upload, Play, Loader2, Download, Lock, AlertCircle } from "lucide-react"
+import { Upload, Play, Loader2, Download, Lock, AlertCircle, Music } from "lucide-react"
 import { toast } from "sonner"
 
 interface Jingle {
@@ -192,8 +192,8 @@ export default function MixerPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Mixer</h1>
-        <p className="text-gray-600 mt-2">Mix your audio with jingles and cover art</p>
+        <h1 className="text-3xl font-bold tracking-tight">Mixer</h1>
+        <p className="text-muted-foreground mt-1.5">Mix your audio with jingles and cover art</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -231,8 +231,8 @@ export default function MixerPage() {
                   }`}
                 >
                   <input {...getInputProps()} />
-                  <Upload className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                  <p className="text-sm text-gray-600">
+                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
                     {isDragActive ? "Drop file here" : "Or drag & drop audio file"}
                   </p>
                 </div>
@@ -426,8 +426,14 @@ export default function MixerPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                Mixed audio will appear here
+              <div className="text-center py-12">
+                <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <Music className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">No output yet</h3>
+                <p className="text-muted-foreground">
+                  Mixed audio will appear here
+                </p>
               </div>
             )}
           </CardContent>

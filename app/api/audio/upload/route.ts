@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { getAudioDuration } from "@/lib/ffmpeg"
+import { checkLimits, checkAudioDurationLimit } from "@/lib/billing"
 import fs from "fs/promises"
 import path from "path"
 import { writeFile } from "fs/promises"
@@ -44,6 +45,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get user and check limits
+    const user = await db.users.findById(session.user.id)
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      )
+    }
+
+    const userUsage = await db.usage.getOrCreate(session.user.id)
+    const limits = checkLimits(user, userUsage)
+
+    if (!limits.canUpload) {
+      return NextResponse.json(
+        { error: limits.reason || "Upload limit reached" },
+        { status: 403 }
+      )
+    }
+
     // Create uploads directory if it doesn't exist
     const uploadsDir = path.join(process.cwd(), "uploads")
     await fs.mkdir(uploadsDir, { recursive: true })
@@ -63,6 +83,16 @@ export async function POST(request: NextRequest) {
     try {
       const durationSeconds = await getAudioDuration(filePath)
       duration = Math.round(durationSeconds) // Convert to integer seconds
+
+      // Check audio length limit
+      const lengthCheck = checkAudioDurationLimit(user.plan, duration)
+      if (!lengthCheck.allowed) {
+        await fs.unlink(filePath).catch(() => {}) // Clean up file
+        return NextResponse.json(
+          { error: lengthCheck.reason || "Audio length exceeds limit" },
+          { status: 403 }
+        )
+      }
     } catch (error) {
       console.error("Failed to extract audio duration:", error)
       // Continue without duration
@@ -80,6 +110,13 @@ export async function POST(request: NextRequest) {
       tags: tags?.trim() || null,
       url,
       duration,
+    })
+
+    // Record usage
+    await db.usage.record(session.user.id, "upload", {
+      audioId: audio.id,
+      duration,
+      fileSize: buffer.length,
     })
 
     return NextResponse.json({

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import dynamic from "next/dynamic"
 import { useRouter, useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -18,8 +19,22 @@ import {
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "sonner"
-import { Loader2, Music, Sliders } from "lucide-react"
+import { Loader2, Music, Sliders, ArrowLeft, Copy } from "lucide-react"
 import Link from "next/link"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+
+// Dynamic import with SSR disabled for AudioPlayer
+const AudioPlayer = dynamic(() => import("@/components/audio/Player").then(mod => ({ default: mod.AudioPlayer })), {
+  ssr: false,
+  loading: () => (
+    <Card className="p-4">
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    </Card>
+  ),
+})
 
 const mixSchema = z.object({
   jingleId: z.string().min(1, "Please select a jingle"),
@@ -151,8 +166,33 @@ export default function MixPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <div>
+          <Skeleton className="h-9 w-48 mb-2" />
+          <Skeleton className="h-5 w-64" />
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-4 w-48 mt-2" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-20 w-full" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-4 w-48 mt-2" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -163,27 +203,48 @@ export default function MixPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Mix Audio</h1>
-        <p className="text-muted-foreground">
-          Add a jingle to your audio track
-        </p>
+      <div className="flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push("/dashboard/library")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Mix Audio</h1>
+          <p className="text-muted-foreground mt-1.5">
+            Add a jingle to your audio track
+          </p>
+        </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Audio to Mix</CardTitle>
           <CardDescription>
-            Selected audio track
+            Preview the original audio track
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <p className="font-medium">{audio.title}</p>
-            <p className="text-sm text-muted-foreground">
-              Duration: {formatDuration(audio.duration)}
-            </p>
-          </div>
+          <AudioPlayer
+            src={audio.url}
+            title={audio.title}
+            showWaveform={true}
+            className="mb-4"
+          />
+          <Button
+            variant="outline"
+            onClick={() => {
+              const embedCode = `<audio src="${audio.url}" controls></audio>`
+              navigator.clipboard.writeText(embedCode)
+              toast.success("Embed code copied to clipboard")
+            }}
+            className="w-full"
+          >
+            <Copy className="mr-2 h-4 w-4" />
+            Copy Embed Code
+          </Button>
         </CardContent>
       </Card>
 
@@ -197,12 +258,14 @@ export default function MixPage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="jingleId">Select Jingle *</Label>
+              <Label htmlFor="jingleId" className="text-base font-medium">
+                Select Jingle <span className="text-destructive">*</span>
+              </Label>
               <Select
                 onValueChange={(value) => setValue("jingleId", value)}
                 disabled={mixing}
               >
-                <SelectTrigger id="jingleId">
+                <SelectTrigger id="jingleId" className="max-w-md">
                   <SelectValue placeholder="Choose a jingle" />
                 </SelectTrigger>
                 <SelectContent>
@@ -213,32 +276,43 @@ export default function MixPage() {
                   ) : (
                     jingles.map((jingle) => (
                       <SelectItem key={jingle.id} value={jingle.id}>
-                        {jingle.title} ({formatDuration(jingle.duration)})
+                        <div className="flex items-center gap-2">
+                          <Music className="h-4 w-4 text-muted-foreground" />
+                          <span>{jingle.title}</span>
+                          <Badge variant="outline" className="ml-auto font-mono text-xs">
+                            {formatDuration(jingle.duration)}
+                          </Badge>
+                        </div>
                       </SelectItem>
                     ))
                   )}
                 </SelectContent>
               </Select>
               {errors.jingleId && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <span>⚠</span>
                   {errors.jingleId.message?.toString()}
                 </p>
               )}
               {jingles.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No other audio files available. Upload more audio files to use as jingles.
-                </p>
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-sm text-muted-foreground">
+                    No other audio files available. Upload more audio files to use as jingles.
+                  </p>
+                </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="position">Position *</Label>
+              <Label htmlFor="position" className="text-base font-medium">
+                Position <span className="text-destructive">*</span>
+              </Label>
               <Select
                 value={position}
                 onValueChange={(value) => setValue("position", value as "start" | "middle" | "end" | "start-end")}
                 disabled={mixing}
               >
-                <SelectTrigger id="position">
+                <SelectTrigger id="position" className="max-w-md">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -249,20 +323,30 @@ export default function MixPage() {
                 </SelectContent>
               </Select>
               {errors.position && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <span>⚠</span>
                   {errors.position.message?.toString()}
                 </p>
               )}
-              <p className="text-sm text-muted-foreground">
-                {position === "start" && "Jingle will play at the beginning of the track"}
-                {position === "middle" && "Jingle will play in the middle of the track"}
-                {position === "end" && "Jingle will play at the end of the track"}
-                {position === "start-end" && "Jingle will play at both the start and end of the track"}
-              </p>
+              <div className="rounded-lg bg-muted p-3">
+                <p className="text-sm text-muted-foreground">
+                  {position === "start" && "Jingle will play at the beginning of the track"}
+                  {position === "middle" && "Jingle will play in the middle of the track"}
+                  {position === "end" && "Jingle will play at the end of the track"}
+                  {position === "start-end" && "Jingle will play at both the start and end of the track"}
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="volume">Volume: {volume[0]}%</Label>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="volume" className="text-base font-medium">
+                  Volume
+                </Label>
+                <Badge variant="outline" className="font-mono">
+                  {volume[0]}%
+                </Badge>
+              </div>
               <Slider
                 id="volume"
                 min={0}
@@ -274,20 +358,21 @@ export default function MixPage() {
                   setValue("volume", value[0])
                 }}
                 disabled={mixing}
-                className="w-full"
+                className="w-full max-w-md"
               />
               {errors.volume && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <span>⚠</span>
                   {errors.volume.message?.toString()}
                 </p>
               )}
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Adjust the volume of the jingle (0-100%)
               </p>
             </div>
 
-            <div className="flex gap-4">
-              <Button type="submit" disabled={mixing || jingles.length === 0}>
+            <div className="flex gap-3 pt-4">
+              <Button type="submit" disabled={mixing || jingles.length === 0} size="lg">
                 {mixing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -305,6 +390,7 @@ export default function MixPage() {
                 variant="outline"
                 onClick={() => router.push("/dashboard/library")}
                 disabled={mixing}
+                size="lg"
               >
                 Cancel
               </Button>

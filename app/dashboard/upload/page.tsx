@@ -69,9 +69,9 @@ export default function UploadPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Upload Audio</h1>
-        <p className="text-muted-foreground">
-          Upload audio files to your library
+        <h1 className="text-3xl font-bold tracking-tight">Upload Audio</h1>
+        <p className="text-muted-foreground mt-1.5">
+          Upload audio files directly to your library
         </p>
       </div>
 
@@ -79,57 +79,72 @@ export default function UploadPage() {
         <CardHeader>
           <CardTitle>Upload New Audio</CardTitle>
           <CardDescription>
-            Select an audio file to upload. Maximum file size is 50MB.
+            Select an audio file to upload. Maximum file size is 50MB. Supported formats: MP3, WAV, OGG, M4A, AAC.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="audio">Audio File *</Label>
-              <Input
-                id="audio"
-                type="file"
-                accept="audio/*"
-                {...register("audio")}
-                disabled={loading}
-              />
+              <Label htmlFor="audio" className="text-base font-medium">
+                Audio File <span className="text-destructive">*</span>
+              </Label>
+              <div className="flex items-center gap-4">
+                <Input
+                  id="audio"
+                  type="file"
+                  accept="audio/*"
+                  {...register("audio")}
+                  disabled={loading}
+                  className="cursor-pointer"
+                />
+              </div>
               {errors.audio && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <span>⚠</span>
                   {errors.audio.message?.toString() || "Audio file is required"}
                 </p>
               )}
+              <p className="text-xs text-muted-foreground">
+                Maximum file size: 50MB. Free tier: Maximum 5 minutes per file.
+              </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="title">Title (Optional)</Label>
+              <Label htmlFor="title" className="text-base font-medium">
+                Title <span className="text-muted-foreground text-sm font-normal">(Optional)</span>
+              </Label>
               <Input
                 id="title"
                 type="text"
                 placeholder="Enter audio title"
                 {...register("title")}
                 disabled={loading}
+                className="max-w-md"
               />
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 If not provided, the filename will be used as the title.
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tags">Tags (Optional)</Label>
+              <Label htmlFor="tags" className="text-base font-medium">
+                Tags <span className="text-muted-foreground text-sm font-normal">(Optional)</span>
+              </Label>
               <Input
                 id="tags"
                 type="text"
                 placeholder="e.g., music, podcast, interview"
                 {...register("tags")}
                 disabled={loading}
+                className="max-w-md"
               />
-              <p className="text-sm text-muted-foreground">
-                Separate multiple tags with commas.
+              <p className="text-xs text-muted-foreground">
+                Separate multiple tags with commas. Tags help organize your audio library.
               </p>
             </div>
 
-            <div className="flex gap-4">
-              <Button type="submit" disabled={loading}>
+            <div className="flex gap-3 pt-4">
+              <Button type="submit" disabled={loading} size="lg">
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -147,6 +162,7 @@ export default function UploadPage() {
                 variant="outline"
                 onClick={() => router.push("/dashboard/library")}
                 disabled={loading}
+                size="lg"
               >
                 Cancel
               </Button>

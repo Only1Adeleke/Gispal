@@ -85,8 +85,8 @@ export default function UploadExternalPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Upload External Audio</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-3xl font-bold tracking-tight">Upload External Audio</h1>
+        <p className="text-muted-foreground mt-1.5">
           Import audio from external sources like YouTube, MP3 URLs, or Audiomack
         </p>
       </div>

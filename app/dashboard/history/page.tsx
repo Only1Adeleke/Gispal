@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, Clock, AlertCircle } from "lucide-react"
+import { Download, Clock, AlertCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface Mix {
   id: string
@@ -55,8 +56,8 @@ export default function HistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">History</h1>
-        <p className="text-gray-600 mt-2">View your previous mixes and previews</p>
+        <h1 className="text-3xl font-bold tracking-tight">History</h1>
+        <p className="text-muted-foreground mt-1.5">View your previous mixes and previews</p>
       </div>
 
       <Card>
@@ -66,12 +67,26 @@ export default function HistoryPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8">Loading...</div>
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center space-x-4">
+                  <Skeleton className="h-12 w-12 rounded" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-[250px]" />
+                    <Skeleton className="h-4 w-[200px]" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : mixes.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-              <p>No mixes yet.</p>
-              <p className="text-sm mt-2">Create your first mix in the Mixer page.</p>
+            <div className="text-center py-12">
+              <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Clock className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No mixes yet</h3>
+              <p className="text-muted-foreground mb-6">
+                Create your first mix in the Mixer page
+              </p>
             </div>
           ) : (
             <Table>

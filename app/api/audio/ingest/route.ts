@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { getAudioDuration } from "@/lib/ffmpeg"
+import { checkLimits, checkExternalIngestDurationLimit } from "@/lib/billing"
 import { downloadAudiomackAudio, parseAudiomackUrl } from "@/lib/audiomack"
 import ytdl from "ytdl-core"
 import fs from "fs/promises"
@@ -65,6 +66,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid source. Must be 'mp3-url', 'youtube', or 'audiomack'" },
         { status: 400 }
+      )
+    }
+
+    // Get user and check limits
+    const user = await db.users.findById(session.user.id)
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      )
+    }
+
+    const userUsage = await db.usage.getOrCreate(session.user.id)
+    const limits = checkLimits(user, userUsage)
+
+    if (!limits.canIngestExternal) {
+      return NextResponse.json(
+        { error: limits.reason || "External ingestion not allowed" },
+        { status: 403 }
       )
     }
 
@@ -262,6 +282,14 @@ export async function POST(request: NextRequest) {
       tags: tags?.trim() || null,
       url: fileUrl,
       duration,
+    })
+
+    // Record usage
+    await db.usage.record(session.user.id, "external_ingest", {
+      audioId: audio.id,
+      source,
+      duration,
+      fileSize: audioBuffer.length,
     })
 
     return NextResponse.json({

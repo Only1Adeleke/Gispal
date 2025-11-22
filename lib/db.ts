@@ -59,6 +59,31 @@ export interface Audio {
   parentId?: string // ID of the original audio if this is a mixed version
 }
 
+export interface ApiKey {
+  id: string
+  userId: string
+  key: string
+  createdAt: number
+  lastUsedAt?: number
+  usageCount: number
+  active: boolean
+}
+
+export interface UsageHistory {
+  type: string
+  timestamp: number
+  meta?: any
+}
+
+export interface Usage {
+  userId: string
+  totalMixes: number
+  totalUploads: number
+  totalDownloads: number
+  wordpressApiRequests: number
+  history: UsageHistory[]
+}
+
 // In-memory storage for development
 // Replace with actual database in production
 const users: Map<string, User> = new Map()
@@ -66,6 +91,8 @@ const jingles: Map<string, Jingle> = new Map()
 const coverArts: Map<string, CoverArt> = new Map()
 const mixes: Map<string, Mix> = new Map()
 const audios: Map<string, Audio> = new Map()
+const apiKeys: Map<string, ApiKey> = new Map()
+const usage: Map<string, Usage> = new Map()
 
 export const db = {
   users: {
@@ -211,6 +238,91 @@ export const db = {
     },
     delete: async (id: string): Promise<void> => {
       audios.delete(id)
+    },
+  },
+  apiKeys: {
+    findByUserId: async (userId: string): Promise<ApiKey[]> => {
+      return Array.from(apiKeys.values()).filter(k => k.userId === userId && k.active)
+    },
+    findByKey: async (key: string): Promise<ApiKey | null> => {
+      for (const apiKey of apiKeys.values()) {
+        if (apiKey.key === key && apiKey.active) return apiKey
+      }
+      return null
+    },
+    create: async (data: Omit<ApiKey, "id">): Promise<ApiKey> => {
+      const apiKey: ApiKey = {
+        ...data,
+        id: crypto.randomUUID(),
+      }
+      apiKeys.set(apiKey.id, apiKey)
+      return apiKey
+    },
+    update: async (id: string, data: Partial<ApiKey>): Promise<ApiKey> => {
+      const key = apiKeys.get(id)
+      if (!key) throw new Error("API key not found")
+      const updated = { ...key, ...data }
+      apiKeys.set(id, updated)
+      return updated
+    },
+    delete: async (id: string): Promise<void> => {
+      const key = apiKeys.get(id)
+      if (key) {
+        apiKeys.set(id, { ...key, active: false })
+      }
+    },
+  },
+  usage: {
+    findByUserId: async (userId: string): Promise<Usage | null> => {
+      return usage.get(userId) || null
+    },
+    getOrCreate: async (userId: string): Promise<Usage> => {
+      let userUsage = usage.get(userId)
+      if (!userUsage) {
+        userUsage = {
+          userId,
+          totalMixes: 0,
+          totalUploads: 0,
+          totalDownloads: 0,
+          wordpressApiRequests: 0,
+          history: [],
+        }
+        usage.set(userId, userUsage)
+      }
+      return userUsage
+    },
+    record: async (userId: string, type: string, meta?: any): Promise<void> => {
+      const userUsage = await db.usage.getOrCreate(userId)
+      
+      // Update counters
+      if (type === "mix") userUsage.totalMixes++
+      else if (type === "upload") userUsage.totalUploads++
+      else if (type === "download") userUsage.totalDownloads++
+      else if (type === "wordpress_api") userUsage.wordpressApiRequests++
+      
+      // Add to history
+      userUsage.history.push({
+        type,
+        timestamp: Date.now(),
+        meta,
+      })
+      
+      // Keep only last 1000 history entries
+      if (userUsage.history.length > 1000) {
+        userUsage.history = userUsage.history.slice(-1000)
+      }
+      
+      usage.set(userId, userUsage)
+    },
+    getTodayCount: async (userId: string, type: string): Promise<number> => {
+      const userUsage = await db.usage.getOrCreate(userId)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const todayTimestamp = today.getTime()
+      
+      return userUsage.history.filter(
+        h => h.type === type && h.timestamp >= todayTimestamp
+      ).length
     },
   },
 }

@@ -7,6 +7,66 @@ import path from "path"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Check authentication
+    const session = await auth.api.getSession({ headers: request.headers })
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const audioId = params.id
+    const audio = await db.audios.findById(audioId)
+
+    if (!audio) {
+      return NextResponse.json({ error: "Audio not found" }, { status: 404 })
+    }
+
+    // Record download usage
+    await db.usage.record(session.user.id, "download", {
+      audioId: audio.id,
+    })
+
+    // Return file path for download
+    const filePath = path.join(process.cwd(), "uploads", path.basename(audio.url))
+    
+    try {
+      await fs.access(filePath)
+    } catch {
+      return NextResponse.json({ error: "File not found" }, { status: 404 })
+    }
+
+    const fileBuffer = await fs.readFile(filePath)
+    const ext = path.extname(filePath).toLowerCase()
+    
+    const contentTypeMap: Record<string, string> = {
+      ".mp3": "audio/mpeg",
+      ".wav": "audio/wav",
+      ".ogg": "audio/ogg",
+      ".m4a": "audio/mp4",
+      ".aac": "audio/aac",
+    }
+    
+    const contentType = contentTypeMap[ext] || "application/octet-stream"
+
+    return new NextResponse(fileBuffer, {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${audio.title}.mp3"`,
+      },
+    })
+  } catch (error: any) {
+    console.error("Error downloading audio:", error)
+    return NextResponse.json(
+      { error: error.message || "Failed to download audio" },
+      { status: 500 }
+    )
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
