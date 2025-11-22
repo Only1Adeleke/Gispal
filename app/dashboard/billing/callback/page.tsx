@@ -73,7 +73,7 @@ function CallbackContent() {
 
           {status === "error" && (
             <div className="flex flex-col items-center justify-center py-8">
-              <XCircle className="w-12 h-12 text-red-600 mb-4" />
+              <XCircle className="w-12 h-12 text-destructive mb-4" />
               <p className="text-gray-600 text-center mb-4">{message}</p>
               <Button onClick={() => router.push("/dashboard/billing")}>
                 Go to Billing

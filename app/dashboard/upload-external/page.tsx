@@ -117,7 +117,7 @@ export default function UploadExternalPage() {
                 </SelectContent>
               </Select>
               {errors.source && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive">
                   {errors.source.message?.toString()}
                 </p>
               )}
@@ -144,7 +144,7 @@ export default function UploadExternalPage() {
                 disabled={loading}
               />
               {errors.url && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-destructive">
                   {errors.url.message?.toString()}
                 </p>
               )}

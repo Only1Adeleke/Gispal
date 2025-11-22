@@ -20,6 +20,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     setLoading(true)
     setError("")
 
@@ -39,10 +40,13 @@ export default function RegisterPage() {
 
       // Success - redirect to dashboard
       if (result?.data) {
+        // Wait for session to be set
+        await new Promise(resolve => setTimeout(resolve, 500))
         // Use window.location for a full page reload to ensure session is set
         window.location.href = "/dashboard"
       } else {
         // Fallback: if no error and no data, assume success
+        await new Promise(resolve => setTimeout(resolve, 500))
         window.location.href = "/dashboard"
       }
     } catch (err: any) {
@@ -53,16 +57,18 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
-          <CardDescription>Sign up to get started with Gispal</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">Create an account</CardTitle>
+          <CardDescription className="text-muted-foreground">
+            Sign up to get started with Gispal
+          </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <CardContent className="space-y-4">
             {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {error}
               </div>
             )}
@@ -133,4 +139,3 @@ export default function RegisterPage() {
     </div>
   )
 }
-

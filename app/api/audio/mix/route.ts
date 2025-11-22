@@ -59,12 +59,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user and check limits
-    const user = await db.users.findById(session.user.id)
+    // Get or create user in our database
+    let user = await db.users.findById(session.user.id)
     if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      )
+      // Create user in our database if they don't exist (first time accessing)
+      try {
+        user = await db.users.create(
+          {
+            email: session.user.email || "",
+            name: session.user.name || undefined,
+            plan: "free",
+            bandwidthLimit: 100 * 1024 * 1024, // 100MB default
+          },
+          session.user.id // Use Better Auth's user ID
+        )
+        // Set first user as admin
+        const allUsers = await db.users.findAll()
+        if (allUsers.length === 1) {
+          user = await db.users.update(user.id, { role: "admin" })
+        }
+      } catch (error: any) {
+        console.error("Error creating user:", error)
+        return NextResponse.json(
+          { error: "Failed to initialize user account" },
+          { status: 500 }
+        )
+      }
     }
 
     const userUsage = await db.usage.getOrCreate(session.user.id)

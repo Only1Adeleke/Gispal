@@ -165,7 +165,7 @@ export default function AccountPage() {
             <CardDescription>Your payment history</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               <p>Billing history will appear here</p>
               <p className="text-sm mt-2">Coming soon</p>
             </div>
@@ -173,9 +173,9 @@ export default function AccountPage() {
         </Card>
       </div>
 
-      <Card className="border-red-200">
+      <Card className="border-destructive/20">
         <CardHeader>
-          <CardTitle className="text-red-600">Danger Zone</CardTitle>
+          <CardTitle className="text-destructive">Danger Zone</CardTitle>
         </CardHeader>
         <CardContent>
           <Button variant="destructive" onClick={handleLogout}>

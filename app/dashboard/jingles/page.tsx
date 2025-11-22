@@ -288,7 +288,7 @@ export default function JinglesPage() {
                           size="icon"
                           onClick={() => handleDelete(jingle.id)}
                         >
-                          <Trash2 className="w-4 h-4 text-red-600" />
+                          <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>

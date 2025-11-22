@@ -314,7 +314,7 @@ export default function CoverArtPage() {
                               size="icon"
                               onClick={() => handleDelete(art.id)}
                             >
-                              <Trash2 className="w-4 h-4 text-red-600" />
+                              <Trash2 className="w-4 h-4 text-destructive" />
                             </Button>
                           </div>
                         </div>

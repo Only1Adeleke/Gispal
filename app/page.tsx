@@ -12,20 +12,20 @@ export default async function Home() {
       headers: await headers(),
     })
     
-    if (session && session.user) {
+    if (session?.user?.id) {
       // Check if user is admin and redirect accordingly
       const user = await db.users.findById(session.user.id)
-      if (user && user.role === "admin") {
+      if (user?.role === "admin") {
         redirect("/admin")
-      } else {
+      } else if (user) {
         redirect("/dashboard")
       }
     }
   } catch (error) {
     console.error("Home page session check error:", error)
-    // If session check fails, redirect to login
   }
   
+  // Redirect to login if no session
   redirect("/login")
 }
 

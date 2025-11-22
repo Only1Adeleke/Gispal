@@ -124,8 +124,8 @@ export default function HistoryPage() {
                           <div className="flex items-center gap-2">
                             {isExpired ? (
                               <>
-                                <AlertCircle className="w-4 h-4 text-red-600" />
-                                <span className="text-red-600">Expired</span>
+                                <AlertCircle className="w-4 h-4 text-destructive" />
+                                <span className="text-destructive">Expired</span>
                               </>
                             ) : (
                               <>

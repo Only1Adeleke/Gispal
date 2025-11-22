@@ -24,6 +24,7 @@ function LoginForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     setLoading(true)
     setError("")
 
@@ -48,28 +49,34 @@ function LoginForm() {
       // Better Auth returns { data: { user, session } } on success
       if (result?.data) {
         console.log("Login successful, checking user role...")
+        // Wait a bit for session cookie to be set
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
         // Check if user is admin and redirect accordingly
-        // Fetch user data to check role
         try {
-          const userResponse = await fetch("/api/user/plan")
+          const userResponse = await fetch("/api/user/plan", {
+            credentials: "include",
+            cache: "no-store",
+            headers: {
+              "Cache-Control": "no-cache",
+            }
+          })
+          
           if (userResponse.ok) {
             const userData = await userResponse.json()
             const finalRedirect = userData.role === "admin" ? "/admin" : redirectTo
             console.log("Redirecting to:", finalRedirect)
-            setTimeout(() => {
-              window.location.href = finalRedirect
-            }, 500)
+            // Use window.location.replace to avoid adding to history
+            window.location.replace(finalRedirect)
           } else {
             // Fallback to original redirect
-            setTimeout(() => {
-              window.location.href = redirectTo
-            }, 500)
+            console.log("User plan fetch failed, redirecting to:", redirectTo)
+            window.location.replace(redirectTo)
           }
         } catch (err) {
+          console.error("Error fetching user plan:", err)
           // Fallback to original redirect
-          setTimeout(() => {
-            window.location.href = redirectTo
-          }, 500)
+          window.location.replace(redirectTo)
         }
       } else {
         // If no error and no data, something unexpected happened
@@ -85,16 +92,18 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
-          <CardDescription>Enter your credentials to access your account</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
+          <CardDescription className="text-muted-foreground">
+            Enter your credentials to access your account
+          </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <CardContent className="space-y-4">
             {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {error}
               </div>
             )}
@@ -160,12 +169,11 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     }>
       <LoginForm />
     </Suspense>
   )
 }
-

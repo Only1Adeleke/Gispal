@@ -11,9 +11,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const user = await db.users.findById(session.user.id)
+    // Get or create user in our database
+    let user = await db.users.findById(session.user.id)
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+      try {
+        user = await db.users.create(
+          {
+            email: session.user.email || "",
+            name: session.user.name || undefined,
+            plan: "free",
+            bandwidthLimit: 100 * 1024 * 1024, // 100MB default
+          },
+          session.user.id // Use Better Auth's user ID
+        )
+        // Set first user as admin if they are the only user
+        const allUsers = await db.users.findAll()
+        if (allUsers.length === 1) {
+          user = await db.users.update(user.id, { role: "admin" })
+        }
+      } catch (error) {
+        console.error("Error creating user in cover art upload route:", error)
+        return NextResponse.json(
+          { error: "Failed to initialize user data" },
+          { status: 500 }
+        )
+      }
     }
 
     // Check cover art limit (only for free users)

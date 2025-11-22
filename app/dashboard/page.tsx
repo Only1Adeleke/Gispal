@@ -148,7 +148,7 @@ export default async function DashboardPage() {
               </div>
               {safeUser.bandwidthLimit !== Infinity && safeUser.bandwidthLimit > 0 && (
                 <div className="mt-2">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div
                       className="bg-primary h-2 rounded-full transition-all"
                       style={{ width: `${Math.min(Math.max(bandwidthPercent, 0), 100)}%` }}

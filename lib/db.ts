@@ -1,6 +1,9 @@
 // Database types and utilities
 // In production, replace with your actual database client (Prisma, Drizzle, etc.)
 
+// Import persistence functions
+import { loadJingles, saveJingles, loadCoverArts, saveCoverArts } from "./db-persistence"
+
 export interface User {
   id: string
   email: string
@@ -87,12 +90,29 @@ export interface Usage {
 // In-memory storage for development
 // Replace with actual database in production
 const users: Map<string, User> = new Map()
-const jingles: Map<string, Jingle> = new Map()
-const coverArts: Map<string, CoverArt> = new Map()
+let jingles: Map<string, Jingle> = new Map()
+let coverArts: Map<string, CoverArt> = new Map()
 const mixes: Map<string, Mix> = new Map()
 const audios: Map<string, Audio> = new Map()
 const apiKeys: Map<string, ApiKey> = new Map()
 const usage: Map<string, Usage> = new Map()
+
+// Load persisted data on module initialization
+let persistenceInitialized = false
+async function initializePersistence() {
+  if (persistenceInitialized) return
+  try {
+    jingles = await loadJingles()
+    coverArts = await loadCoverArts()
+    persistenceInitialized = true
+    console.log(`Loaded ${jingles.size} jingles and ${coverArts.size} cover arts from disk`)
+  } catch (error) {
+    console.error("Failed to load persisted data:", error)
+  }
+}
+
+// Initialize on module load
+initializePersistence().catch(console.error)
 
 export const db = {
   users: {
@@ -141,47 +161,60 @@ export const db = {
   },
   jingles: {
     findAll: async (): Promise<Jingle[]> => {
+      await initializePersistence()
       return Array.from(jingles.values())
     },
     findByUserId: async (userId: string): Promise<Jingle[]> => {
+      await initializePersistence()
       return Array.from(jingles.values()).filter(j => j.userId === userId)
     },
     findById: async (id: string): Promise<Jingle | null> => {
+      await initializePersistence()
       return jingles.get(id) || null
     },
     create: async (data: Omit<Jingle, "id" | "createdAt">): Promise<Jingle> => {
+      await initializePersistence()
       const jingle: Jingle = {
         ...data,
         id: crypto.randomUUID(),
         createdAt: new Date(),
       }
       jingles.set(jingle.id, jingle)
+      await saveJingles(jingles)
       return jingle
     },
     delete: async (id: string): Promise<void> => {
+      await initializePersistence()
       jingles.delete(id)
+      await saveJingles(jingles)
     },
   },
   coverArts: {
     findAll: async (): Promise<CoverArt[]> => {
+      await initializePersistence()
       return Array.from(coverArts.values())
     },
     findByUserId: async (userId: string): Promise<CoverArt[]> => {
+      await initializePersistence()
       return Array.from(coverArts.values()).filter(c => c.userId === userId)
     },
     findById: async (id: string): Promise<CoverArt | null> => {
+      await initializePersistence()
       return coverArts.get(id) || null
     },
     create: async (data: Omit<CoverArt, "id" | "createdAt">): Promise<CoverArt> => {
+      await initializePersistence()
       const coverArt: CoverArt = {
         ...data,
         id: crypto.randomUUID(),
         createdAt: new Date(),
       }
       coverArts.set(coverArt.id, coverArt)
+      await saveCoverArts(coverArts)
       return coverArt
     },
     setDefault: async (userId: string, id: string): Promise<void> => {
+      await initializePersistence()
       // Unset all defaults for user
       for (const [key, art] of coverArts.entries()) {
         if (art.userId === userId) {
@@ -193,9 +226,12 @@ export const db = {
       if (art) {
         coverArts.set(id, { ...art, isDefault: true })
       }
+      await saveCoverArts(coverArts)
     },
     delete: async (id: string): Promise<void> => {
+      await initializePersistence()
       coverArts.delete(id)
+      await saveCoverArts(coverArts)
     },
   },
   mixes: {

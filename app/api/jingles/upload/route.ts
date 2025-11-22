@@ -12,9 +12,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const user = await db.users.findById(session.user.id)
+    // Get or create user in our database
+    let user = await db.users.findById(session.user.id)
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+      try {
+        user = await db.users.create(
+          {
+            email: session.user.email || "",
+            name: session.user.name || undefined,
+            plan: "free",
+            bandwidthLimit: 100 * 1024 * 1024, // 100MB default
+          },
+          session.user.id // Use Better Auth's user ID
+        )
+        // Set first user as admin if they are the only user
+        const allUsers = await db.users.findAll()
+        if (allUsers.length === 1) {
+          user = await db.users.update(user.id, { role: "admin" })
+        }
+      } catch (error) {
+        console.error("Error creating user in jingles upload route:", error)
+        return NextResponse.json(
+          { error: "Failed to initialize user data" },
+          { status: 500 }
+        )
+      }
     }
 
     // Check jingle limit
@@ -41,10 +63,15 @@ export async function POST(request: NextRequest) {
     const fileUrl = await storage.upload(buffer, fileKey, file.type)
 
     // Save to temp to get duration
-    const tempPath = `/tmp/gispal/${Date.now()}_${file.name}`
-    await require("fs/promises").writeFile(tempPath, buffer)
+    const fs = require("fs/promises")
+    const path = require("path")
+    const tempDir = "/tmp/gispal"
+    // Ensure temp directory exists
+    await fs.mkdir(tempDir, { recursive: true }).catch(() => {})
+    const tempPath = path.join(tempDir, `${Date.now()}_${file.name}`)
+    await fs.writeFile(tempPath, buffer)
     const duration = await getAudioDuration(tempPath).catch(() => undefined)
-    await require("fs/promises").unlink(tempPath).catch(() => {})
+    await fs.unlink(tempPath).catch(() => {})
 
     const jingle = await db.jingles.create({
       userId: session.user.id,
