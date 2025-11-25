@@ -26,6 +26,18 @@ const nextConfig = {
       },
     ]
   },
+  // Ensure ffmpeg/ffprobe static binaries are not bundled
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Externalize ffmpeg-static and ffprobe-static to prevent bundling issues
+      config.externals = config.externals || []
+      config.externals.push({
+        'ffmpeg-static': 'commonjs ffmpeg-static',
+        'ffprobe-static': 'commonjs ffprobe-static',
+      })
+    }
+    return config
+  },
 }
 
 export default nextConfig

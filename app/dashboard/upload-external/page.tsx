@@ -18,21 +18,31 @@ import {
 } from "@/components/ui/select"
 import { toast } from "sonner"
 import { ExternalLink, Loader2, Music } from "lucide-react"
+import { ProcessingDialog } from "@/components/audio/ProcessingDialog"
+import { Spinner } from "@/components/ui/spinner"
 
 const ingestSchema = z.object({
   url: z.string().url("Please enter a valid URL"),
   source: z.enum(["mp3-url", "youtube", "audiomack"], {
     required_error: "Please select a source",
   }),
-  title: z.string().optional(),
-  tags: z.string().optional(),
 })
 
 type IngestFormData = z.infer<typeof ingestSchema>
 
+
 export default function UploadExternalPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [processingOpen, setProcessingOpen] = useState(false)
+  const [stagingData, setStagingData] = useState<{
+    stagingId: string
+    stagingUrl: string
+    duration: number | null
+    extractedCoverArt: string | null
+    extractedMetadata: any
+    filename: string
+  } | null>(null)
   const {
     register,
     handleSubmit,
@@ -52,7 +62,7 @@ export default function UploadExternalPage() {
   const onSubmit = async (data: IngestFormData) => {
     setLoading(true)
     try {
-      const response = await fetch("/api/audio/ingest", {
+      const response = await fetch("/api/audio/stage-url", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -60,25 +70,64 @@ export default function UploadExternalPage() {
         body: JSON.stringify({
           source: data.source,
           url: data.url,
-          title: data.title || undefined,
-          tags: data.tags || undefined,
         }),
       })
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || "Failed to ingest audio")
+        throw new Error(error.error || "Failed to stage audio")
       }
 
       const result = await response.json()
-      toast.success("Audio ingested successfully!")
+      
+      // Open processing dialog with staging data
+      setStagingData({
+        stagingId: result.stagingId,
+        stagingUrl: result.stagingUrl,
+        duration: result.duration,
+        extractedCoverArt: result.extractedCoverArt,
+        extractedMetadata: result.extractedMetadata,
+        filename: result.filename,
+      })
+      setProcessingOpen(true)
       reset()
-      router.push("/dashboard/library")
     } catch (error: any) {
       console.error("Ingest error:", error)
       toast.error(error.message || "Failed to ingest audio")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleProcess = async (formData: any) => {
+    if (!stagingData) return
+
+    try {
+      const response = await fetch("/api/audio/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stagingId: stagingData.stagingId,
+          stagingUrl: stagingData.stagingUrl,
+          ...formData,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to process audio")
+      }
+
+      const result = await response.json()
+      toast.success("Your track has been transformed.")
+      setProcessingOpen(false)
+      setStagingData(null)
+      router.push("/dashboard/library")
+    } catch (error: any) {
+      console.error("Process error:", error)
+      throw error
     }
   }
 
@@ -150,40 +199,12 @@ export default function UploadExternalPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="title">Title (Optional)</Label>
-              <Input
-                id="title"
-                type="text"
-                placeholder="Enter audio title"
-                {...register("title")}
-                disabled={loading}
-              />
-              <p className="text-sm text-muted-foreground">
-                {source === "youtube" && "If not provided, the video title will be used."}
-                {source !== "youtube" && "If not provided, a default title will be used."}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tags">Tags (Optional)</Label>
-              <Input
-                id="tags"
-                type="text"
-                placeholder="e.g., music, podcast, interview"
-                {...register("tags")}
-                disabled={loading}
-              />
-              <p className="text-sm text-muted-foreground">
-                Separate multiple tags with commas.
-              </p>
-            </div>
 
             <div className="flex gap-4">
               <Button type="submit" disabled={loading}>
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-4 w-4" />
                     Ingesting...
                   </>
                 ) : (
@@ -240,6 +261,20 @@ export default function UploadExternalPage() {
           </div>
         </CardContent>
       </Card>
+
+      {stagingData && (
+        <ProcessingDialog
+          open={processingOpen}
+          onOpenChange={setProcessingOpen}
+          stagingId={stagingData.stagingId}
+          stagingUrl={stagingData.stagingUrl}
+          duration={stagingData.duration}
+          extractedCoverArt={stagingData.extractedCoverArt}
+          extractedMetadata={stagingData.extractedMetadata}
+          filename={stagingData.filename}
+          onProcess={handleProcess}
+        />
+      )}
     </div>
   )
 }

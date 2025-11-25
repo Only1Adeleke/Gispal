@@ -17,9 +17,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "sonner"
-import { Loader2, Music, Sliders, ArrowLeft, Copy } from "lucide-react"
+import { Loader2, Music, Sliders, ArrowLeft, Copy, Edit } from "lucide-react"
+import { MetadataDialog } from "@/components/audio/MetadataDialog"
+import { Spinner } from "@/components/ui/spinner"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -53,6 +62,19 @@ interface Audio {
   url: string
   duration: number | null
   createdAt: string
+  artist?: string
+  album?: string
+  producer?: string
+  year?: string
+}
+
+interface Jingle {
+  id: string
+  name: string
+  fileUrl: string
+  fileSize: number
+  duration?: number
+  createdAt: string
 }
 
 export default function MixPage() {
@@ -61,10 +83,11 @@ export default function MixPage() {
   const audioId = params.id as string
 
   const [audio, setAudio] = useState<Audio | null>(null)
-  const [jingles, setJingles] = useState<Audio[]>([])
+  const [jingles, setJingles] = useState<Jingle[]>([])
   const [loading, setLoading] = useState(true)
   const [mixing, setMixing] = useState(false)
   const [volume, setVolume] = useState([100])
+  const [metadataOpen, setMetadataOpen] = useState(false)
 
   const {
     register,
@@ -227,6 +250,17 @@ export default function MixPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">{audio.title}</h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMetadataOpen(true)}
+              title="Edit Metadata"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          </div>
           <AudioPlayer
             src={audio.url}
             title={audio.title}
@@ -278,9 +312,9 @@ export default function MixPage() {
                       <SelectItem key={jingle.id} value={jingle.id}>
                         <div className="flex items-center gap-2">
                           <Music className="h-4 w-4 text-muted-foreground" />
-                          <span>{jingle.title}</span>
+                          <span>{jingle.name}</span>
                           <Badge variant="outline" className="ml-auto font-mono text-xs">
-                            {formatDuration(jingle.duration)}
+                            {formatDuration(jingle.duration || null)}
                           </Badge>
                         </div>
                       </SelectItem>
@@ -303,46 +337,100 @@ export default function MixPage() {
               )}
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="position" className="text-base font-medium">
                 Position <span className="text-destructive">*</span>
               </Label>
-              <Select
-                value={position}
-                onValueChange={(value) => setValue("position", value as "start" | "middle" | "end" | "start-end")}
-                disabled={mixing}
-              >
-                <SelectTrigger id="position" className="max-w-md">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="start">Start</SelectItem>
-                  <SelectItem value="middle">Middle</SelectItem>
-                  <SelectItem value="end">End</SelectItem>
-                  <SelectItem value="start-end">Start & End</SelectItem>
-                </SelectContent>
-              </Select>
+              <TooltipProvider>
+                <RadioGroup
+                  value={position}
+                  onValueChange={(value) => setValue("position", value as "start" | "middle" | "end" | "start-end")}
+                  disabled={mixing}
+                  className="grid grid-cols-2 gap-4"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="start" id="start" />
+                        <Label htmlFor="start" className="cursor-pointer flex-1">
+                          <div className="font-medium">Start</div>
+                          <div className="text-xs text-muted-foreground">Beginning</div>
+                        </Label>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Jingle will play at the beginning of the track</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="middle" id="middle" />
+                        <Label htmlFor="middle" className="cursor-pointer flex-1">
+                          <div className="font-medium">Middle</div>
+                          <div className="text-xs text-muted-foreground">Center</div>
+                        </Label>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Jingle will play in the middle of the track</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="end" id="end" />
+                        <Label htmlFor="end" className="cursor-pointer flex-1">
+                          <div className="font-medium">End</div>
+                          <div className="text-xs text-muted-foreground">Conclusion</div>
+                        </Label>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Jingle will play at the end of the track</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="start-end" id="start-end" />
+                        <Label htmlFor="start-end" className="cursor-pointer flex-1">
+                          <div className="font-medium">Start & End</div>
+                          <div className="text-xs text-muted-foreground">Both</div>
+                        </Label>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Jingle will play at both the start and end of the track</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </RadioGroup>
+              </TooltipProvider>
               {errors.position && (
                 <p className="text-sm text-destructive flex items-center gap-1">
                   <span>⚠</span>
                   {errors.position.message?.toString()}
                 </p>
               )}
-              <div className="rounded-lg bg-muted p-3">
-                <p className="text-sm text-muted-foreground">
-                  {position === "start" && "Jingle will play at the beginning of the track"}
-                  {position === "middle" && "Jingle will play in the middle of the track"}
-                  {position === "end" && "Jingle will play at the end of the track"}
-                  {position === "start-end" && "Jingle will play at both the start and end of the track"}
-                </p>
-              </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label htmlFor="volume" className="text-base font-medium">
-                  Volume
-                </Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Label htmlFor="volume" className="text-base font-medium cursor-help">
+                        Volume
+                      </Label>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Adjust the volume of the jingle relative to the main audio</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <Badge variant="outline" className="font-mono">
                   {volume[0]}%
                 </Badge>
@@ -375,7 +463,7 @@ export default function MixPage() {
               <Button type="submit" disabled={mixing || jingles.length === 0} size="lg">
                 {mixing ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-4 w-4" />
                     Mixing...
                   </>
                 ) : (
@@ -398,6 +486,15 @@ export default function MixPage() {
           </form>
         </CardContent>
       </Card>
+
+      <MetadataDialog
+        open={metadataOpen}
+        onOpenChange={setMetadataOpen}
+        audio={audio}
+        onUpdate={() => {
+          fetchAudio()
+        }}
+      />
     </div>
   )
 }

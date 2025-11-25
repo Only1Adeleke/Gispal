@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { useDropzone } from "react-dropzone"
-import { Upload, Trash2, Music, AlertCircle, Loader2 } from "lucide-react"
+import { Upload, Trash2, Music, AlertCircle, Loader2, Play, Download } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
+import { PremiumPlayer } from "@/components/audio/PremiumPlayer"
 
 interface Jingle {
   id: string
@@ -29,13 +30,35 @@ export default function JinglesPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [userPlan, setUserPlan] = useState<{ plan: string; jingleCount: number; maxJingles: number } | null>(null)
+  const [previewJingle, setPreviewJingle] = useState<Jingle | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [defaultCoverArt, setDefaultCoverArt] = useState<string | null>(null)
+
+  // Helper function to normalize file URLs
+  const normalizeFileUrl = (url: string): string => {
+    if (!url) return url
+    // Convert old /storage/ paths to /api/storage/ for backward compatibility
+    if (url.startsWith("/storage/")) {
+      return url.replace("/storage/", "/api/storage/")
+    }
+    // Ensure relative URLs are absolute
+    if (url.startsWith("/") && !url.startsWith("http")) {
+      return url
+    }
+    return url
+  }
 
   const fetchJingles = async () => {
     try {
       const response = await fetch("/api/jingles")
       if (response.ok) {
         const data = await response.json()
-        setJingles(data)
+        // Normalize all file URLs
+        const normalizedData = data.map((jingle: Jingle) => ({
+          ...jingle,
+          fileUrl: normalizeFileUrl(jingle.fileUrl)
+        }))
+        setJingles(normalizedData)
       } else {
         toast.error("Failed to fetch jingles")
       }
@@ -125,6 +148,51 @@ export default function JinglesPage() {
     disabled: uploading || (userPlan ? jingles.length >= userPlan.maxJingles : false),
   })
 
+  const fetchDefaultCoverArt = async () => {
+    try {
+      const response = await fetch("/api/cover")
+      if (response.ok) {
+        const coverArts = await response.json()
+        // Normalize all cover art URLs
+        const normalizedArts = coverArts.map((art: any) => ({
+          ...art,
+          fileUrl: normalizeFileUrl(art.fileUrl)
+        }))
+        const defaultArt = normalizedArts.find((art: any) => art.isDefault)
+        if (defaultArt) {
+          setDefaultCoverArt(defaultArt.fileUrl)
+        } else {
+          setDefaultCoverArt(null)
+        }
+      }
+    } catch (error) {
+      // Silently fail - cover art is optional
+      setDefaultCoverArt(null)
+    }
+  }
+
+  const handlePlay = async (jingle: Jingle) => {
+    // Ensure the URL is normalized before setting preview
+    const normalizedJingle = {
+      ...jingle,
+      fileUrl: normalizeFileUrl(jingle.fileUrl)
+    }
+    setPreviewJingle(normalizedJingle)
+    setPreviewOpen(true)
+    // Fetch default cover art when opening preview
+    await fetchDefaultCoverArt()
+  }
+
+  const handleDownload = (jingle: Jingle) => {
+    const link = document.createElement("a")
+    link.href = normalizeFileUrl(jingle.fileUrl)
+    link.download = jingle.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.success("Download started")
+  }
+
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this jingle?")) return
 
@@ -135,6 +203,11 @@ export default function JinglesPage() {
 
       if (response.ok) {
         toast.success("Jingle deleted successfully")
+        // Close preview if this jingle is being previewed
+        if (previewJingle?.id === id) {
+          setPreviewOpen(false)
+          setPreviewJingle(null)
+        }
         fetchJingles()
         fetchUserPlan()
       } else {
@@ -283,13 +356,35 @@ export default function JinglesPage() {
                         {new Date(jingle.createdAt).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(jingle.id)}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handlePlay(jingle)}
+                            title="Play Jingle"
+                            className="h-8 w-8"
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownload(jingle)}
+                            title="Download Jingle"
+                            className="h-8 w-8"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(jingle.id)}
+                            title="Delete Jingle"
+                            className="h-8 w-8"
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -299,6 +394,64 @@ export default function JinglesPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-2xl p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
+          <div className="relative">
+            {previewJingle && (() => {
+              // Ensure URL is normalized and absolute
+              const normalizedUrl = normalizeFileUrl(previewJingle.fileUrl)
+              const absoluteUrl = normalizedUrl.startsWith("http")
+                ? normalizedUrl
+                : typeof window !== "undefined"
+                ? `${window.location.origin}${normalizedUrl}`
+                : normalizedUrl
+              
+              // Normalize cover art URL if present
+              const coverArtUrl = defaultCoverArt
+                ? defaultCoverArt.startsWith("http")
+                  ? defaultCoverArt
+                  : typeof window !== "undefined"
+                  ? `${window.location.origin}${defaultCoverArt}`
+                  : defaultCoverArt
+                : undefined
+              
+              return (
+                <PremiumPlayer
+                  key={previewJingle.id} // Force re-render when jingle changes
+                  src={absoluteUrl}
+                  coverArt={coverArtUrl}
+                  title={previewJingle.name}
+                  artist="Your Jingle"
+                />
+              )
+            })()}
+            {/* Custom close button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-4 right-4 z-20 h-8 w-8 rounded-full bg-black/50 hover:bg-black/70 text-white backdrop-blur-sm"
+              onClick={() => setPreviewOpen(false)}
+            >
+              <span className="sr-only">Close</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

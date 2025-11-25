@@ -17,8 +17,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import { Download, Copy, Trash2, Loader2, Music, Sliders, Upload as UploadIcon, Eye } from "lucide-react"
+import { Download, Copy, Trash2, Loader2, Music, Sliders, Upload as UploadIcon, Eye, Edit, RefreshCw, Sparkles, Play } from "lucide-react"
 import { format } from "date-fns"
+import { MetadataDialog } from "@/components/audio/MetadataDialog"
+import { ProcessingDialog } from "@/components/audio/ProcessingDialog"
 
 // Dynamic import with SSR disabled for AudioPlayer
 const AudioPlayer = dynamic(() => import("@/components/audio/Player").then(mod => ({ default: mod.AudioPlayer })), {
@@ -39,6 +41,10 @@ interface Audio {
   url: string
   duration: number | null
   createdAt: string
+  artist?: string
+  album?: string
+  producer?: string
+  year?: string
 }
 
 export default function LibraryPage() {
@@ -47,9 +53,32 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true)
   const [previewAudio, setPreviewAudio] = useState<Audio | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [metadataAudio, setMetadataAudio] = useState<Audio | null>(null)
+  const [metadataOpen, setMetadataOpen] = useState(false)
+  const [regenerateAudio, setRegenerateAudio] = useState<Audio | null>(null)
+  const [regenerateOpen, setRegenerateOpen] = useState(false)
+  const [regenerateStaging, setRegenerateStaging] = useState<{
+    stagingId: string
+    stagingUrl: string
+    duration: number | null
+    extractedCoverArt: string | null
+    extractedMetadata: any
+    filename: string
+  } | null>(null)
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAudios()
+    // Refresh when page becomes visible (e.g., when navigating back)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchAudios()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [])
 
   const fetchAudios = async () => {
@@ -71,6 +100,12 @@ export default function LibraryPage() {
   const handlePreview = (audio: Audio) => {
     setPreviewAudio(audio)
     setPreviewOpen(true)
+  }
+
+  const handlePlay = (audio: Audio) => {
+    // Open preview dialog to play the audio
+    setPlayingAudio(audio.id)
+    handlePreview(audio)
   }
 
   const handleDownload = (audio: Audio) => {
@@ -123,6 +158,83 @@ export default function LibraryPage() {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, "0")}`
+  }
+
+  const handleRegenerate = async (audio: Audio) => {
+    try {
+      // Download the audio file to staging
+      const response = await fetch(audio.url.startsWith("http") ? audio.url : `http://localhost:3000${audio.url}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch audio file")
+      }
+
+      const blob = await response.blob()
+      const formData = new FormData()
+      formData.append("audio", blob, `${audio.title}.mp3`)
+
+      const stageResponse = await fetch("/api/audio/stage", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!stageResponse.ok) {
+        const error = await stageResponse.json()
+        throw new Error(error.error || "Failed to stage audio")
+      }
+
+      const stageResult = await stageResponse.json()
+      
+      setRegenerateAudio(audio)
+      setRegenerateStaging({
+        stagingId: stageResult.stagingId,
+        stagingUrl: stageResult.stagingUrl,
+        duration: stageResult.duration || audio.duration,
+        extractedCoverArt: stageResult.extractedCoverArt,
+        extractedMetadata: {
+          title: audio.title,
+          artist: audio.artist,
+          album: audio.album,
+        },
+        filename: `${audio.title}.mp3`,
+      })
+      setRegenerateOpen(true)
+    } catch (error: any) {
+      console.error("Regenerate error:", error)
+      toast.error(error.message || "Failed to regenerate audio")
+    }
+  }
+
+  const handleRegenerateProcess = async (formData: any) => {
+    if (!regenerateStaging) return
+
+    try {
+      const response = await fetch("/api/audio/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stagingId: regenerateStaging.stagingId,
+          stagingUrl: regenerateStaging.stagingUrl,
+          ...formData,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to process audio")
+      }
+
+      const result = await response.json()
+      toast.success("Your track has been transformed.")
+      setRegenerateOpen(false)
+      setRegenerateAudio(null)
+      setRegenerateStaging(null)
+      fetchAudios()
+    } catch (error: any) {
+      console.error("Process error:", error)
+      throw error
+    }
   }
 
   return (
@@ -224,6 +336,12 @@ export default function LibraryPage() {
                           <span className="truncate max-w-[280px]" title={audio.title}>
                             {audio.title}
                           </span>
+                          {audio.tags && audio.tags.toLowerCase().includes("mixed") && (
+                            <Badge variant="default" className="text-xs bg-gradient-to-r from-primary to-primary/80">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Mixed
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -261,18 +379,36 @@ export default function LibraryPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            onClick={() => handlePlay(audio)}
+                            title="Play Audio"
+                            className="h-8 w-8 hover:scale-110 transition-transform text-primary hover:text-primary"
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => handlePreview(audio)}
                             title="Preview Audio"
-                            className="h-8 w-8"
+                            className="h-8 w-8 hover:scale-110 transition-transform"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
+                            onClick={() => handleRegenerate(audio)}
+                            title="Regenerate"
+                            className="h-8 w-8 hover:scale-110 transition-transform"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => router.push(`/dashboard/mix/${audio.id}`)}
                             title="Mix Audio"
-                            className="h-8 w-8"
+                            className="h-8 w-8 hover:scale-110 transition-transform"
                           >
                             <Sliders className="h-4 w-4" />
                           </Button>
@@ -284,6 +420,18 @@ export default function LibraryPage() {
                             className="h-8 w-8"
                           >
                             <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setMetadataAudio(audio)
+                              setMetadataOpen(true)
+                            }}
+                            title="Edit Metadata"
+                            className="h-8 w-8"
+                          >
+                            <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -313,6 +461,27 @@ export default function LibraryPage() {
           )}
         </CardContent>
       </Card>
+
+      <MetadataDialog
+        open={metadataOpen}
+        onOpenChange={setMetadataOpen}
+        audio={metadataAudio}
+        onUpdate={fetchAudios}
+      />
+
+      {regenerateStaging && (
+        <ProcessingDialog
+          open={regenerateOpen}
+          onOpenChange={setRegenerateOpen}
+          stagingId={regenerateStaging.stagingId}
+          stagingUrl={regenerateStaging.stagingUrl}
+          duration={regenerateStaging.duration}
+          extractedCoverArt={regenerateStaging.extractedCoverArt}
+          extractedMetadata={regenerateStaging.extractedMetadata}
+          filename={regenerateStaging.filename}
+          onProcess={handleRegenerateProcess}
+        />
+      )}
     </div>
   )
 }

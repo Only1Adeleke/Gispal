@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { getAudioDuration } from "@/lib/ffmpeg"
+import { getAudioDuration, mixAudio, JingleConfig } from "@/lib/ffmpeg"
 import { checkLimits, checkExternalIngestDurationLimit } from "@/lib/billing"
 import { downloadAudiomackAudio, parseAudiomackUrl } from "@/lib/audiomack"
 import ytdl from "ytdl-core"
@@ -289,25 +289,148 @@ export async function POST(request: NextRequest) {
       // Continue without duration
     }
 
-    // Generate URL for the file
-    const fileUrl = `/uploads/${filename}`
-
     // Use provided title, extracted title, or fallback
     const audioTitle = title?.trim() || extractedTitle || "Imported Audio"
 
-    // Save to database
+    // Check if user has jingles and automatically mix
+    const userJingles = await db.jingles.findByUserId(session.user.id)
+    let finalAudioPath = filePath
+    let finalFileUrl = `/uploads/${filename}`
+    let finalDuration = duration
+
+    // If user has jingles, automatically mix with them
+    if (userJingles.length > 0) {
+      try {
+        // Prepare jingle configs - use first jingle at the start
+        const jingleConfigs: JingleConfig[] = []
+        
+        for (const jingle of userJingles) {
+          // Download jingle file to temp location
+          let jinglePath: string
+          
+          // Check if jingle URL is a local file or needs to be fetched
+          if (jingle.fileUrl.startsWith("/")) {
+            // Local file - check if it exists in uploads or storage
+            const possiblePaths = [
+              path.join(process.cwd(), "uploads", path.basename(jingle.fileUrl)),
+              path.join(process.cwd(), jingle.fileUrl.replace("/api/storage/", "storage/").replace("/storage/", "storage/")),
+            ]
+            
+            let found = false
+            for (const possiblePath of possiblePaths) {
+              try {
+                await fs.access(possiblePath)
+                jinglePath = possiblePath
+                found = true
+                break
+              } catch {
+                // Try next path
+              }
+            }
+            
+            if (!found) {
+              // Try to fetch from URL
+              const jingleUrl = jingle.fileUrl.startsWith("http") 
+                ? jingle.fileUrl 
+                : `http://localhost:3000${jingle.fileUrl}`
+              const jingleResponse = await fetch(jingleUrl)
+              if (jingleResponse.ok) {
+                const jingleBuffer = await jingleResponse.arrayBuffer()
+                const tempJinglePath = path.join(process.cwd(), "uploads", `temp_jingle_${Date.now()}.mp3`)
+                await writeFile(tempJinglePath, Buffer.from(jingleBuffer))
+                jinglePath = tempJinglePath
+              } else {
+                console.warn(`Could not access jingle file: ${jingle.fileUrl}`)
+                continue
+              }
+            }
+          } else {
+            // Remote URL - fetch it
+            const jingleResponse = await fetch(jingle.fileUrl)
+            if (!jingleResponse.ok) {
+              console.warn(`Could not fetch jingle from URL: ${jingle.fileUrl}`)
+              continue
+            }
+            const jingleBuffer = await jingleResponse.arrayBuffer()
+            const tempJinglePath = path.join(process.cwd(), "uploads", `temp_jingle_${Date.now()}.mp3`)
+            await writeFile(tempJinglePath, Buffer.from(jingleBuffer))
+            jinglePath = tempJinglePath
+          }
+
+          jingleConfigs.push({
+            path: jinglePath,
+            position: "start", // Default to start position
+            volume: 1.0, // Default volume
+          })
+        }
+
+        // Mix audio with jingles
+        if (jingleConfigs.length > 0) {
+          try {
+            // Use the local file path directly (mixAudio accepts file paths)
+            const mixedOutputPath = path.join(process.cwd(), "uploads", `mixed_${timestamp}${sanitizedExtension}`)
+            
+            // Use mixAudio function - it will handle the mixing
+            const mixedAudioPath = await mixAudio({
+              audioUrl: filePath, // Pass file path directly
+              jingles: jingleConfigs,
+              previewOnly: false,
+            })
+
+            // mixAudio saves to tmp/gispal, so we need to move it to uploads
+            try {
+              // Try to move the file
+              await fs.rename(mixedAudioPath, mixedOutputPath)
+            } catch (renameError) {
+              // If rename fails (cross-device), copy and delete
+              const mixedBuffer = await fs.readFile(mixedAudioPath)
+              await writeFile(mixedOutputPath, mixedBuffer)
+              await fs.unlink(mixedAudioPath).catch(() => {})
+            }
+
+            // Update final paths
+            finalAudioPath = mixedOutputPath
+            finalFileUrl = `/uploads/${path.basename(mixedOutputPath)}`
+            
+            // Get duration of mixed audio
+            try {
+              const mixedDuration = await getAudioDuration(mixedOutputPath)
+              finalDuration = Math.round(mixedDuration)
+            } catch (error) {
+              console.error("Failed to get mixed audio duration:", error)
+            }
+
+            // Clean up temp jingle files
+            for (const jingleConfig of jingleConfigs) {
+              if (jingleConfig.path.includes("temp_jingle_")) {
+                await fs.unlink(jingleConfig.path).catch(() => {})
+              }
+            }
+          } catch (mixError: any) {
+            console.error("Error during mixing:", mixError)
+            // Continue with original audio if mixing fails
+            console.log("Falling back to original audio without mixing")
+          }
+        }
+      } catch (error) {
+        console.error("Error mixing audio with jingles:", error)
+        // Continue with original audio if mixing fails
+      }
+    }
+
+    // Save to database with the final (mixed) audio
     const audio = await db.audios.create({
       title: audioTitle,
       tags: tags?.trim() || null,
-      url: fileUrl,
-      duration,
+      url: finalFileUrl,
+      duration: finalDuration,
     })
 
     // Record usage
     await db.usage.record(session.user.id, "external_ingest", {
       audioId: audio.id,
       source,
-      duration,
+      duration: finalDuration,
       fileSize: audioBuffer.length,
     })
 
@@ -317,6 +440,7 @@ export async function POST(request: NextRequest) {
       url: audio.url,
       duration: audio.duration,
       tags: audio.tags,
+      mixed: userJingles.length > 0,
     })
   } catch (error: any) {
     console.error("Audio ingest error:", error)

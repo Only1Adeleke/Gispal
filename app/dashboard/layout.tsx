@@ -1,9 +1,4 @@
-import dynamic from "next/dynamic"
-
-// Dynamic import for client component
-const Sidebar = dynamic(() => import("@/components/dashboard/sidebar").then(mod => ({ default: mod.Sidebar })), {
-  ssr: false,
-})
+import { Sidebar } from "@/components/dashboard/sidebar"
 
 export default function DashboardLayout({
   children,
@@ -13,7 +8,7 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto ml-64">
         <div className="container mx-auto p-6 max-w-7xl">
           {children}
         </div>

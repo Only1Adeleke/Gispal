@@ -74,7 +74,7 @@ class StorageService {
         const filePath = path.join(localPath, key)
         await fs.mkdir(path.dirname(filePath), { recursive: true })
         await fs.writeFile(filePath, file)
-        return `/storage/${key}`
+        return `/api/storage/${key}`
 
       default:
         throw new Error(`Unsupported storage provider: ${this.config.provider}`)
@@ -124,7 +124,7 @@ class StorageService {
         return publicUrl
 
       case "local":
-        return `/storage/${key}`
+        return `/api/storage/${key}`
 
       default:
         throw new Error(`Unsupported storage provider: ${this.config.provider}`)

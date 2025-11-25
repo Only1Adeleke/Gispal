@@ -10,11 +10,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Upload, Loader2 } from "lucide-react"
+import { Upload } from "lucide-react"
+import { ProcessingDialog } from "@/components/audio/ProcessingDialog"
+import { Spinner } from "@/components/ui/spinner"
 
 const uploadSchema = z.object({
-  title: z.string().optional(),
-  tags: z.string().optional(),
   audio: z.any().refine((files) => files && files.length > 0, "Audio file is required"),
 })
 
@@ -23,6 +23,16 @@ type UploadFormData = z.infer<typeof uploadSchema>
 export default function UploadPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [processingOpen, setProcessingOpen] = useState(false)
+  const [stagingData, setStagingData] = useState<{
+    stagingId: string
+    stagingUrl: string
+    duration: number | null
+    extractedCoverArt: string | null
+    extractedMetadata: any
+    filename: string
+  } | null>(null)
+
   const {
     register,
     handleSubmit,
@@ -37,32 +47,67 @@ export default function UploadPage() {
     try {
       const formData = new FormData()
       formData.append("audio", data.audio[0])
-      if (data.title) {
-        formData.append("title", data.title)
-      }
-      if (data.tags) {
-        formData.append("tags", data.tags)
-      }
 
-      const response = await fetch("/api/audio/upload", {
+      const response = await fetch("/api/audio/stage", {
         method: "POST",
         body: formData,
       })
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || "Failed to upload audio")
+        throw new Error(error.error || "Failed to stage audio")
       }
 
       const result = await response.json()
-      toast.success("Audio uploaded successfully!")
+      
+      // Open processing dialog with staging data
+      setStagingData({
+        stagingId: result.stagingId,
+        stagingUrl: result.stagingUrl,
+        duration: result.duration,
+        extractedCoverArt: result.extractedCoverArt,
+        extractedMetadata: result.extractedMetadata,
+        filename: result.filename,
+      })
+      setProcessingOpen(true)
       reset()
-      router.push("/dashboard/library")
     } catch (error: any) {
       console.error("Upload error:", error)
       toast.error(error.message || "Failed to upload audio")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleProcess = async (formData: any) => {
+    if (!stagingData) return
+
+    try {
+      const response = await fetch("/api/audio/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stagingId: stagingData.stagingId,
+          stagingUrl: stagingData.stagingUrl,
+          ...formData,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to process audio")
+      }
+
+      const result = await response.json()
+      toast.success("Your track has been transformed.")
+      setProcessingOpen(false)
+      setStagingData(null)
+      router.push("/dashboard/library")
+    } catch (error: any) {
+      console.error("Process error:", error)
+      throw error
     }
   }
 
@@ -109,45 +154,12 @@ export default function UploadPage() {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="title" className="text-base font-medium">
-                Title <span className="text-muted-foreground text-sm font-normal">(Optional)</span>
-              </Label>
-              <Input
-                id="title"
-                type="text"
-                placeholder="Enter audio title"
-                {...register("title")}
-                disabled={loading}
-                className="max-w-md"
-              />
-              <p className="text-xs text-muted-foreground">
-                If not provided, the filename will be used as the title.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tags" className="text-base font-medium">
-                Tags <span className="text-muted-foreground text-sm font-normal">(Optional)</span>
-              </Label>
-              <Input
-                id="tags"
-                type="text"
-                placeholder="e.g., music, podcast, interview"
-                {...register("tags")}
-                disabled={loading}
-                className="max-w-md"
-              />
-              <p className="text-xs text-muted-foreground">
-                Separate multiple tags with commas. Tags help organize your audio library.
-              </p>
-            </div>
 
             <div className="flex gap-3 pt-4">
               <Button type="submit" disabled={loading} size="lg">
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-4 w-4" />
                     Uploading...
                   </>
                 ) : (
@@ -170,6 +182,20 @@ export default function UploadPage() {
           </form>
         </CardContent>
       </Card>
+
+      {stagingData && (
+        <ProcessingDialog
+          open={processingOpen}
+          onOpenChange={setProcessingOpen}
+          stagingId={stagingData.stagingId}
+          stagingUrl={stagingData.stagingUrl}
+          duration={stagingData.duration}
+          extractedCoverArt={stagingData.extractedCoverArt}
+          extractedMetadata={stagingData.extractedMetadata}
+          filename={stagingData.filename}
+          onProcess={handleProcess}
+        />
+      )}
     </div>
   )
 }

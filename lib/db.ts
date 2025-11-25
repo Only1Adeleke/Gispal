@@ -2,7 +2,7 @@
 // In production, replace with your actual database client (Prisma, Drizzle, etc.)
 
 // Import persistence functions
-import { loadJingles, saveJingles, loadCoverArts, saveCoverArts } from "./db-persistence"
+import { loadJingles, saveJingles, loadCoverArts, saveCoverArts, loadAudios, saveAudios } from "./db-persistence"
 
 export interface User {
   id: string
@@ -60,6 +60,10 @@ export interface Audio {
   duration: number | null
   createdAt: Date
   parentId?: string // ID of the original audio if this is a mixed version
+  artist?: string
+  album?: string
+  producer?: string
+  year?: string
 }
 
 export interface ApiKey {
@@ -99,19 +103,34 @@ const usage: Map<string, Usage> = new Map()
 
 // Load persisted data on module initialization
 let persistenceInitialized = false
+let persistencePromise: Promise<void> | null = null
+
 async function initializePersistence() {
   if (persistenceInitialized) return
-  try {
-    jingles = await loadJingles()
-    coverArts = await loadCoverArts()
-    persistenceInitialized = true
-    console.log(`Loaded ${jingles.size} jingles and ${coverArts.size} cover arts from disk`)
-  } catch (error) {
-    console.error("Failed to load persisted data:", error)
-  }
+  if (persistencePromise) return persistencePromise
+  
+  persistencePromise = (async () => {
+    try {
+      jingles = await loadJingles()
+      coverArts = await loadCoverArts()
+      const loadedAudios = await loadAudios()
+      // Merge loaded audios into the in-memory map
+      for (const [id, audio] of loadedAudios.entries()) {
+        audios.set(id, audio)
+      }
+      persistenceInitialized = true
+      console.log(`Loaded ${jingles.size} jingles, ${coverArts.size} cover arts, and ${loadedAudios.size} audios from disk`)
+    } catch (error) {
+      console.error("Failed to load persisted data:", error)
+    } finally {
+      persistencePromise = null
+    }
+  })()
+  
+  return persistencePromise
 }
 
-// Initialize on module load
+// Initialize on module load (non-blocking)
 initializePersistence().catch(console.error)
 
 export const db = {
@@ -273,10 +292,33 @@ export const db = {
         createdAt: new Date(),
       }
       audios.set(audio.id, audio)
+      // Persist to disk
+      await saveAudios(audios).catch((error) => {
+        console.error("Failed to persist audios:", error)
+      })
       return audio
+    },
+    update: async (id: string, data: Partial<Audio>): Promise<Audio | null> => {
+      const audio = audios.get(id)
+      if (!audio) return null
+      
+      const updatedAudio: Audio = {
+        ...audio,
+        ...data,
+      }
+      audios.set(id, updatedAudio)
+      // Persist to disk
+      await saveAudios(audios).catch((error) => {
+        console.error("Failed to persist audios:", error)
+      })
+      return updatedAudio
     },
     delete: async (id: string): Promise<void> => {
       audios.delete(id)
+      // Persist to disk
+      await saveAudios(audios).catch((error) => {
+        console.error("Failed to persist audios:", error)
+      })
     },
   },
   apiKeys: {

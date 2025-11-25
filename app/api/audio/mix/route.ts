@@ -5,6 +5,7 @@ import { getAudioDuration } from "@/lib/ffmpeg"
 import { checkLimits, checkJingleDurationLimit } from "@/lib/billing"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
+import ffprobeStatic from "ffprobe-static"
 import fs from "fs/promises"
 import path from "path"
 import { writeFile } from "fs/promises"
@@ -13,9 +14,15 @@ import { randomUUID } from "crypto"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Set ffmpeg path
+// Set ffmpeg and ffprobe paths
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
+}
+if (ffprobeStatic) {
+  const ffprobePath = (ffprobeStatic as any).path || ffprobeStatic
+  if (ffprobePath) {
+    ffmpeg.setFfprobePath(ffprobePath)
+  }
 }
 
 interface MixRequest {
@@ -106,13 +113,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const jingle = await db.audios.findById(jingleId)
+    const jingle = await db.jingles.findById(jingleId)
     if (!jingle) {
       return NextResponse.json(
         { error: "Jingle not found" },
         { status: 404 }
       )
     }
+    
+    console.log(`[MIX] Starting mix: audioId=${audioId}, jingleId=${jingleId}, position=${position}, volume=${volume}`)
 
     // Check jingle duration limit for free tier
     if (jingle.duration) {
@@ -125,9 +134,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get file paths
-    const audioPath = path.join(process.cwd(), "uploads", path.basename(audio.url))
-    const jinglePath = path.join(process.cwd(), "uploads", path.basename(jingle.url))
+    // Get file paths - handle both /uploads/ and /api/storage/ URLs
+    let audioPath: string
+    if (audio.url.startsWith("/uploads/")) {
+      audioPath = path.join(process.cwd(), "uploads", path.basename(audio.url))
+    } else if (audio.url.startsWith("/api/storage/") || audio.url.startsWith("/storage/")) {
+      const storagePath = audio.url.replace("/api/storage/", "storage/").replace("/storage/", "storage/")
+      audioPath = path.join(process.cwd(), storagePath)
+    } else {
+      audioPath = path.join(process.cwd(), "uploads", path.basename(audio.url))
+    }
+    
+    let jinglePath: string
+    if (jingle.fileUrl.startsWith("/uploads/")) {
+      jinglePath = path.join(process.cwd(), "uploads", path.basename(jingle.fileUrl))
+    } else if (jingle.fileUrl.startsWith("/api/storage/") || jingle.fileUrl.startsWith("/storage/")) {
+      const storagePath = jingle.fileUrl.replace("/api/storage/", "storage/").replace("/storage/", "storage/")
+      jinglePath = path.join(process.cwd(), storagePath)
+    } else {
+      jinglePath = path.join(process.cwd(), "uploads", path.basename(jingle.fileUrl))
+    }
+    
+    console.log(`[MIX] File paths: audioPath=${audioPath}, jinglePath=${jinglePath}`)
 
     // Check if files exist
     try {
@@ -143,10 +171,18 @@ export async function POST(request: NextRequest) {
     // Get durations
     const audioDuration = await getAudioDuration(audioPath)
     const jingleDuration = await getAudioDuration(jinglePath)
+    
+    console.log(`[MIX] Durations: audio=${audioDuration}s, jingle=${jingleDuration}s`)
 
-    // Generate output filename
+    // Generate output filename - ALWAYS UUID-based, NEVER from metadata
     const outputFilename = `mixed-${randomUUID()}.mp3`
     const outputPath = path.join(process.cwd(), "uploads", outputFilename)
+    
+    // CRITICAL DEBUG: Log output path
+    console.log("[DEBUG] ========== MIX OUTPUT PATH ==========")
+    console.log("[DEBUG] FINAL OUTPUT PATH:", outputPath)
+    console.log("[DEBUG] Output filename (UUID):", outputFilename)
+    console.log("[DEBUG] ====================================")
 
     // Create ffmpeg command
     return new Promise<NextResponse>((resolve, reject) => {
@@ -154,9 +190,6 @@ export async function POST(request: NextRequest) {
         let command = ffmpeg(audioPath)
         const filters: string[] = []
         let inputIndex = 1
-
-        // Add jingle as input
-        command = command.input(jinglePath)
 
         // Calculate positions for jingle(s)
         const positions: number[] = []
@@ -172,48 +205,102 @@ export async function POST(request: NextRequest) {
           positions.push(Math.max(0, audioDuration - jingleDuration))
         }
 
-        // For start-end, we need to add the jingle input multiple times
-        // or use the same input with different delays
-        // We'll add the input once and create multiple delayed streams from it
-        const jingleStream = `[${inputIndex}:a]`
         const jingleStreams: string[] = []
         
-        // First, apply volume if needed (only once)
-        let processedJingleStream = jingleStream
-        if (volume !== 1.0) {
-          processedJingleStream = "[jingle_volume]"
-          filters.push(`${jingleStream}volume=${volume}${processedJingleStream}`)
-        }
-        
-        // Create delayed streams for each position
-        for (let i = 0; i < positions.length; i++) {
-          const pos = positions[i]
+        // For start-end, we need to add the jingle input twice (once for start, once for end)
+        // For other positions, we add it once
+        if (position === "start-end") {
+          // Add jingle input twice
+          command = command.input(jinglePath)
+          command = command.input(jinglePath)
+          
+          // Process start position (first input)
+          const startDelayMs = Math.round(positions[0] * 1000)
+          const startStream = `[${inputIndex}:a]`
+          const startDelayed = `[jingle_0_delayed]`
+          
+          if (volume !== 1.0) {
+            filters.push(
+              `${startStream}volume=${volume}[jingle_0_volume]`,
+              `[jingle_0_volume]adelay=${startDelayMs}|${startDelayMs}${startDelayed}`
+            )
+          } else {
+            filters.push(
+              `${startStream}adelay=${startDelayMs}|${startDelayMs}${startDelayed}`
+            )
+          }
+          jingleStreams.push(startDelayed)
+          
+          // Process end position (second input)
+          const endDelayMs = Math.round(positions[1] * 1000)
+          const endStream = `[${inputIndex + 1}:a]`
+          const endDelayed = `[jingle_1_delayed]`
+          
+          if (volume !== 1.0) {
+            filters.push(
+              `${endStream}volume=${volume}[jingle_1_volume]`,
+              `[jingle_1_volume]adelay=${endDelayMs}|${endDelayMs}${endDelayed}`
+            )
+          } else {
+            filters.push(
+              `${endStream}adelay=${endDelayMs}|${endDelayMs}${endDelayed}`
+            )
+          }
+          jingleStreams.push(endDelayed)
+        } else {
+          // Single position - add jingle input once
+          command = command.input(jinglePath)
+          const pos = positions[0]
           const delayMs = Math.round(pos * 1000)
-          const jingleDelayed = `[jingle_${i}_delayed]`
+          const jingleStream = `[${inputIndex}:a]`
+          const jingleDelayed = `[jingle_0_delayed]`
           
-          filters.push(
-            `${processedJingleStream}adelay=${delayMs}|${delayMs}${jingleDelayed}`
-          )
-          
+          if (volume !== 1.0) {
+            filters.push(
+              `${jingleStream}volume=${volume}[jingle_0_volume]`,
+              `[jingle_0_volume]adelay=${delayMs}|${delayMs}${jingleDelayed}`
+            )
+          } else {
+            filters.push(
+              `${jingleStream}adelay=${delayMs}|${delayMs}${jingleDelayed}`
+            )
+          }
           jingleStreams.push(jingleDelayed)
         }
 
-        // Mix all streams together
+        // Mix all streams together - use longest duration to preserve full audio
         const mainAudioStream = "[0:a]"
-        const allInputs = [mainAudioStream, ...jingleStreams].join("")
+        const allInputs = [mainAudioStream, ...jingleStreams]
         const mixOutput = "[audio_mixed]"
         
+        // Build amix filter with proper input syntax
+        const amixInputs = allInputs.join("")
         filters.push(
-          `${allInputs}amix=inputs=${1 + jingleStreams.length}:duration=longest:dropout_transition=0${mixOutput}`
+          `${amixInputs}amix=inputs=${allInputs.length}:duration=longest:dropout_transition=0${mixOutput}`
         )
+        
+        console.log(`[MIX] FFmpeg filters: ${filters.join("; ")}`)
+        console.log(`[MIX] Positions: ${positions.join(", ")}s, Jingle streams: ${jingleStreams.length}`)
 
         // Apply filters and set output
+        console.log(`[MIX] Starting FFmpeg processing...`)
+        console.log(`[MIX] Output path: ${outputPath}`)
+        
         command
           .complexFilter(filters)
           .outputOptions(["-map", mixOutput])
           .outputOptions(["-c:a", "libmp3lame", "-b:a", "192k"])
           .output(outputPath)
+          .on("start", (commandLine) => {
+            console.log(`[MIX] FFmpeg command: ${commandLine}`)
+          })
+          .on("progress", (progress) => {
+            if (progress.percent) {
+              console.log(`[MIX] Processing: ${Math.round(progress.percent)}%`)
+            }
+          })
           .on("end", async () => {
+            console.log(`[MIX] FFmpeg processing completed successfully`)
             try {
               // Get duration of mixed file
               const mixedDuration = await getAudioDuration(outputPath).catch(() => audioDuration)

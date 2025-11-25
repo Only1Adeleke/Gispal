@@ -34,7 +34,14 @@ export default function CoverArtPage() {
       const response = await fetch("/api/cover")
       if (response.ok) {
         const data = await response.json()
-        setCoverArts(data)
+        // Convert old /storage/ paths to /api/storage/ for backward compatibility
+        const normalizedData = data.map((art: CoverArt) => ({
+          ...art,
+          fileUrl: art.fileUrl.startsWith("/storage/") 
+            ? art.fileUrl.replace("/storage/", "/api/storage/")
+            : art.fileUrl
+        }))
+        setCoverArts(normalizedData)
       }
     } catch (error) {
       toast.error("Failed to fetch cover arts")

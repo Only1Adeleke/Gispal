@@ -58,7 +58,7 @@ export function Sidebar() {
     return (
       <div className="space-y-1">
         {groupLabel && (
-          <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             {groupLabel}
           </div>
         )}
@@ -72,8 +72,8 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
               <Icon className="w-4 h-4" />
@@ -86,41 +86,41 @@ export function Sidebar() {
   }
 
   return (
-    <div className="w-64 bg-gray-900 text-white min-h-screen border-r border-gray-800 flex flex-col">
-      <div className="p-6 border-b border-gray-800">
+    <aside className="w-64 bg-sidebar-background text-sidebar-foreground min-h-screen border-r border-sidebar-border flex flex-col shrink-0 z-10 fixed left-0 top-0">
+      <div className="p-6 border-b border-sidebar-border">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
           Gispal
         </h1>
-        <p className="text-xs text-gray-400 mt-1">Audio Mixing Platform</p>
+        <p className="text-xs text-muted-foreground mt-1">Audio Mixing Platform</p>
       </div>
       
       <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
         {renderNavGroup(mainNavItems)}
         
-        <Separator className="bg-gray-800" />
+        <Separator className="bg-sidebar-border" />
         
         {renderNavGroup(libraryNavItems, "Library")}
         
-        <Separator className="bg-gray-800" />
+        <Separator className="bg-sidebar-border" />
         
         {renderNavGroup(audioNavItems, "Audio Tools")}
         
-        <Separator className="bg-gray-800" />
+        <Separator className="bg-sidebar-border" />
         
         {renderNavGroup(accountNavItems, "Account")}
       </nav>
       
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-sidebar-border">
         <Button
           variant="ghost"
-          className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+          className="w-full justify-start text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"
           onClick={handleLogout}
         >
           <LogOut className="w-4 h-4 mr-3" />
           <span className="text-sm font-medium">Logout</span>
         </Button>
       </div>
-    </div>
+    </aside>
   )
 }
 

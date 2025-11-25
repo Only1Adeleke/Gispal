@@ -1,13 +1,14 @@
 // Persistence layer for in-memory database
-// Saves jingles and cover arts to JSON files so they persist across server restarts
+// Saves jingles, cover arts, and audios to JSON files so they persist across server restarts
 
 import fs from "fs/promises"
 import path from "path"
-import type { Jingle, CoverArt } from "./db"
+import type { Jingle, CoverArt, Audio } from "./db"
 
 const DATA_DIR = path.join(process.cwd(), ".data")
 const JINGLES_FILE = path.join(DATA_DIR, "jingles.json")
 const COVER_ARTS_FILE = path.join(DATA_DIR, "coverarts.json")
+const AUDIOS_FILE = path.join(DATA_DIR, "audios.json")
 
 // Ensure data directory exists
 async function ensureDataDir() {
@@ -78,6 +79,37 @@ export async function saveCoverArts(coverArts: Map<string, CoverArt>): Promise<v
     await fs.writeFile(COVER_ARTS_FILE, JSON.stringify(coverArtsArray, null, 2))
   } catch (error) {
     console.error("Failed to save cover arts:", error)
+  }
+}
+
+// Load audios from disk
+export async function loadAudios(): Promise<Map<string, Audio>> {
+  await ensureDataDir()
+  try {
+    const data = await fs.readFile(AUDIOS_FILE, "utf-8")
+    const audiosArray = JSON.parse(data)
+    const audiosMap = new Map<string, Audio>()
+    for (const audio of audiosArray) {
+      audiosMap.set(audio.id, {
+        ...audio,
+        createdAt: new Date(audio.createdAt),
+      })
+    }
+    return audiosMap
+  } catch (error) {
+    // File doesn't exist yet, return empty map
+    return new Map()
+  }
+}
+
+// Save audios to disk
+export async function saveAudios(audios: Map<string, Audio>): Promise<void> {
+  await ensureDataDir()
+  try {
+    const audiosArray = Array.from(audios.values())
+    await fs.writeFile(AUDIOS_FILE, JSON.stringify(audiosArray, null, 2))
+  } catch (error) {
+    console.error("Failed to save audios:", error)
   }
 }
 

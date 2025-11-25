@@ -19,6 +19,7 @@ import {
   Maximize2,
   Loader2,
 } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
 interface PlayerProps {
@@ -341,7 +342,7 @@ export function AudioPlayer({
                       className="h-10 w-10"
                     >
                       {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Spinner className="h-4 w-4" />
                       ) : isPlaying ? (
                         <Pause className="h-4 w-4" />
                       ) : (

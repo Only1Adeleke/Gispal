@@ -6,6 +6,7 @@ import { downloadAudiomackAudio, parseAudiomackUrl } from "@/lib/audiomack"
 import ytdl from "ytdl-core"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
+import ffprobeStatic from "ffprobe-static"
 import fs from "fs/promises"
 import path from "path"
 import { writeFile } from "fs/promises"
@@ -14,9 +15,15 @@ import { randomUUID } from "crypto"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Set ffmpeg path
+// Set ffmpeg and ffprobe paths
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
+}
+if (ffprobeStatic) {
+  const ffprobePath = (ffprobeStatic as any).path || ffprobeStatic
+  if (ffprobePath) {
+    ffmpeg.setFfprobePath(ffprobePath)
+  }
 }
 
 interface WordPressMixRequest {
