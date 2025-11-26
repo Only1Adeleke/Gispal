@@ -346,16 +346,34 @@ export function ProcessingDialog({
                     <FormItem>
                       <FormLabel className="flex items-center gap-2">
                         <Tag className="h-4 w-4" />
-                        Tags
+                        Genre
                       </FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="e.g., music, podcast, interview"
+                        <select
                           {...field}
-                        />
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="">Select genre...</option>
+                          <option value="Afrobeat">Afrobeat</option>
+                          <option value="Afropop">Afropop</option>
+                          <option value="Hip Hop">Hip Hop</option>
+                          <option value="Amapiano">Amapiano</option>
+                          <option value="Fuji">Fuji</option>
+                          <option value="Fuji Fusion">Fuji Fusion</option>
+                          <option value="Afrofusion">Afrofusion</option>
+                          <option value="Afroswing">Afroswing</option>
+                          <option value="Afro-adura">Afro-adura</option>
+                          <option value="Highlife">Highlife</option>
+                          <option value="Alte">Alte</option>
+                          <option value="Dancehall">Dancehall</option>
+                          <option value="Gqom">Gqom</option>
+                          <option value="R&B Africa">R&B Africa</option>
+                          <option value="Afrohouse">Afrohouse</option>
+                          <option value="Bongo Flava">Bongo Flava</option>
+                        </select>
                       </FormControl>
                       <FormDescription>
-                        Separate multiple tags with commas
+                        Select the primary genre for this track
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

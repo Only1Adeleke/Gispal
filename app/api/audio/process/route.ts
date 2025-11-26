@@ -12,6 +12,8 @@ import path from "path"
 import { promises as fsPromises } from "fs"
 import { writeFile } from "fs/promises"
 import { randomUUID } from "crypto"
+import { spawn } from "child_process"
+import NodeID3 from "node-id3"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -390,13 +392,28 @@ export async function POST(request: NextRequest) {
       finalCoverArtPath // Cover art (original, default, or custom)
     )
     
+    // Clean up temp files
+    const tempFilesToClean: string[] = []
+    
     // Clean up temp mixed file if it exists
     if (jingleConfigs.length > 0 && mixedAudioPath !== stagingPath && fs.existsSync(mixedAudioPath)) {
+      tempFilesToClean.push(mixedAudioPath)
+    }
+    
+    // Clean up temp cover art file if it was downloaded
+    if (finalCoverArtPath && finalCoverArtPath !== coverArtPath && finalCoverArtPath.includes("cover_default_")) {
+      tempFilesToClean.push(finalCoverArtPath)
+    }
+    
+    // Clean up all temp files
+    for (const tempFile of tempFilesToClean) {
       try {
-        await fsPromises.unlink(mixedAudioPath)
-        console.log("[PROCESS] Cleaned up temp mixed file")
+        if (fs.existsSync(tempFile)) {
+          await fsPromises.unlink(tempFile)
+          console.log("[PROCESS] Cleaned up temp file:", path.basename(tempFile))
+        }
       } catch (error) {
-        console.warn("[PROCESS] Failed to clean up temp file:", error)
+        console.warn("[PROCESS] Failed to clean up temp file:", tempFile, error)
       }
     }
     
@@ -404,7 +421,14 @@ export async function POST(request: NextRequest) {
     if (!fs.existsSync(absoluteOutputPath)) {
       throw new Error(`Final output file missing: ${absoluteOutputPath}`)
     }
+    
+    const finalStats = fs.statSync(absoluteOutputPath)
+    if (finalStats.size === 0) {
+      throw new Error(`Final output file is empty: ${absoluteOutputPath}`)
+    }
+    
     console.log("[PROCESS] Step 2 complete: Final audio with metadata saved to:", absoluteOutputPath)
+    console.log("[PROCESS] Final file size:", finalStats.size, "bytes")
 
     // Get final duration
     let finalDuration = duration
@@ -469,7 +493,7 @@ export async function POST(request: NextRequest) {
 }
 
 // Helper function to process audio metadata and cover art AFTER mixing
-// This function follows the exact FFmpeg structure: ffmpeg -i <mixedFile> -i <coverImage> -map 0:a -map 1:v -c:a copy -c:v copy -metadata ... <finalOutput>
+// Uses node-id3 library instead of FFmpeg for reliable metadata injection
 async function processAudioMetadata(
   inputPath: string,
   outputPath: string,
@@ -483,149 +507,198 @@ async function processAudioMetadata(
   },
   coverArtPath?: string
 ): Promise<string> {
-  return new Promise(async (resolve, reject) => {
+  try {
     // Ensure output directory exists (synchronous)
     const outputDir = path.dirname(outputPath)
     if (!fs.existsSync(outputDir)) {
       console.log("[FS] Creating directory:", outputDir)
       fs.mkdirSync(outputDir, { recursive: true })
-    } else {
-      console.log("[FS] Directory exists:", outputDir)
     }
 
     // Resolve to absolute paths
     const absoluteInputPath = path.resolve(inputPath)
     const absoluteOutputPath = path.resolve(outputPath)
     
-    // Debug logs
-    console.log("[DEBUG][METADATA] Applying:", JSON.stringify(metadata, null, 2))
-    console.log("[DEBUG][COVER ART] Using:", coverArtPath || "none")
-    console.log("[PROCESS] Input file:", absoluteInputPath)
-    console.log("[PROCESS] Output file:", absoluteOutputPath)
+    // Validate input file exists
+    if (!fs.existsSync(absoluteInputPath)) {
+      throw new Error(`Input file not found: ${absoluteInputPath}`)
+    }
     
-    // Initialize FFmpeg paths
-    initializeFfmpegPaths()
-
-    // Build FFmpeg command following exact structure:
-    // ffmpeg -i <mixedFile> -i <coverImage> -map 0:a -map 1:v -c:a copy -c:v copy -metadata ... <finalOutput>
-    let command = ffmpeg(absoluteInputPath)
+    // Validate output path ends with .mp3
+    if (!absoluteOutputPath.endsWith(".mp3")) {
+      throw new Error(`Output path must end with .mp3: ${absoluteOutputPath}`)
+    }
     
-    // Build output options array for debugging
-    const outputOptions: string[] = []
-
-    // Add cover art as second input if provided
+    // Log metadata and cover art
+    console.log("[METADATA] ========== METADATA INJECTION ==========")
+    console.log("[METADATA] Applying:", JSON.stringify(metadata, null, 2))
+    console.log("[COVER] Using:", coverArtPath || "none")
+    console.log("[METADATA] Input file:", absoluteInputPath)
+    console.log("[METADATA] Output file:", absoluteOutputPath)
+    
+    // Read the input MP3 file as Buffer
+    const audioBuffer = await fsPromises.readFile(absoluteInputPath)
+    const originalSize = audioBuffer.length
+    console.log("[METADATA] Read input file, size:", originalSize, "bytes")
+    
+    // Prepare cover art image buffer if provided
+    let coverImageBuffer: Buffer | undefined
+    let coverMimeType: string = "image/jpeg"
+    
     if (coverArtPath) {
       const absoluteCoverPath = path.resolve(coverArtPath)
       if (!fs.existsSync(absoluteCoverPath)) {
-        reject(new Error(`Cover art file not found: ${absoluteCoverPath}`))
-        return
+        console.warn(`[METADATA] Cover art file not found: ${absoluteCoverPath}, continuing without cover art`)
+      } else {
+        // Validate cover art is PNG or JPG
+        const coverExt = path.extname(absoluteCoverPath).toLowerCase()
+        if (![".png", ".jpg", ".jpeg"].includes(coverExt)) {
+          console.warn(`[METADATA] Cover art extension ${coverExt} may not be supported, continuing anyway`)
+        }
+        
+        // Detect mime type from extension
+        coverMimeType = coverExt === ".png" ? "image/png" : "image/jpeg"
+        
+        // Read cover art as Buffer
+        coverImageBuffer = await fsPromises.readFile(absoluteCoverPath)
+        console.log("[METADATA] Read cover art, size:", coverImageBuffer.length, "bytes")
+        console.log("[METADATA] Cover art mime type:", coverMimeType)
+        
+        // Validate cover art buffer
+        if (!coverImageBuffer || coverImageBuffer.length === 0) {
+          console.warn("[METADATA] Cover art buffer is empty, continuing without cover art")
+          coverImageBuffer = undefined
+        }
       }
-      command = command.input(absoluteCoverPath)
-      console.log("[DEBUG][COVER ART] Absolute path:", absoluteCoverPath)
-      
-      // Map audio from first input and video (cover art) from second input
-      outputOptions.push("-map", "0:a")
-      outputOptions.push("-map", "1:v") // Use 1:v, NOT just 1
-      outputOptions.push("-c:a", "copy") // Copy audio, don't re-encode
-      outputOptions.push("-c:v", "copy") // Copy video/cover art
-    } else {
-      // No cover art - just map audio
-      outputOptions.push("-map", "0:a")
-      outputOptions.push("-c:a", "copy") // Copy audio, don't re-encode
     }
-
-    // Add ID3v2.3 tags (most compatible)
-    outputOptions.push("-id3v2_version", "3")
-    outputOptions.push("-write_id3v1", "1")
-
-    // Add metadata - use quotes to preserve spaces in values
-    // DO NOT sanitize spaces - we want to preserve the original metadata
-    // FFmpeg will handle quotes correctly
+    
+    // If no cover art provided, skip embedding
+    if (!coverImageBuffer) {
+      console.log("[METADATA] No cover art provided, skipping APIC frame embedding")
+    }
+    
+    // Build ID3 tags using node-id3
+    const tags: NodeID3.Tags = {}
+    
+    // Title
     if (metadata.title) {
-      outputOptions.push("-metadata", `title=${metadata.title}`)
+      tags.title = metadata.title
+      console.log("[METADATA] Title:", metadata.title)
     }
+    
+    // Artist
     if (metadata.artist) {
-      outputOptions.push("-metadata", `artist=${metadata.artist}`)
+      tags.artist = metadata.artist
+      console.log("[METADATA] Artist:", metadata.artist)
     }
+    
+    // Album
     if (metadata.album) {
-      outputOptions.push("-metadata", `album=${metadata.album}`)
+      tags.album = metadata.album
+      console.log("[METADATA] Album:", metadata.album)
     }
-    if (metadata.producer) {
-      outputOptions.push("-metadata", `TXXX=PRODUCER:${metadata.producer}`)
-    }
+    
+    // Year
     if (metadata.year) {
-      outputOptions.push("-metadata", `date=${metadata.year}`)
+      tags.year = metadata.year
+      console.log("[METADATA] Year:", metadata.year)
     }
+    
+    // Genre (from tags field - now a single genre selection)
     if (metadata.tags) {
-      // For tags/genre, join with comma
-      const genreValue = metadata.tags.split(",").map(t => t.trim()).join(", ")
-      outputOptions.push("-metadata", `genre=${genreValue}`)
-    }
-
-    // Add overwrite flag
-    outputOptions.push("-y")
-    
-    // Log the command arguments
-    console.log("[DEBUG][FFMPEG CMD] args:", outputOptions)
-    
-    // Apply all output options
-    command = command.outputOptions(outputOptions)
-    
-    // Set output path LAST
-    command = command.output(absoluteOutputPath)
-    
-    // Final validation: Ensure output path is UUID-based
-    const outputBasename = path.basename(absoluteOutputPath)
-    if (!outputBasename.startsWith("final-") && !outputBasename.startsWith("mixed-")) {
-      reject(new Error(`Output filename must be UUID-based, got: ${outputBasename}`))
-      return
+      tags.genre = metadata.tags
+      console.log("[METADATA] Genre:", metadata.tags)
     }
     
-    // Verify the output path is valid before running
-    if (!absoluteOutputPath || !absoluteOutputPath.endsWith(".mp3")) {
-      reject(new Error(`Invalid output path: ${absoluteOutputPath}`))
-      return
+    // Producer (as TXXX frame)
+    if (metadata.producer) {
+      tags.userDefinedText = [
+        {
+          description: "PRODUCER",
+          value: metadata.producer,
+        },
+      ]
+      console.log("[METADATA] Producer:", metadata.producer)
     }
     
-    // Add event handlers
-    command
-      .on("start", (commandLine) => {
-        console.log("[PROCESS] ========== FFMPEG METADATA INJECTION ==========")
-        console.log("[PROCESS] Full command:", commandLine)
-        console.log("[PROCESS] Input file:", absoluteInputPath)
-        console.log("[PROCESS] Output file:", absoluteOutputPath)
-        console.log("[PROCESS] Cover art:", coverArtPath || "none")
-        console.log("[PROCESS] ===============================================")
-      })
-      .on("end", () => {
-        // Validate output file exists
-        if (!fs.existsSync(absoluteOutputPath)) {
-          reject(new Error(`Output file missing after FFmpeg processing: ${absoluteOutputPath}`))
-          return
-        }
-        
-        // Validate file is not empty
-        const stats = fs.statSync(absoluteOutputPath)
-        if (stats.size === 0) {
-          reject(new Error(`Output file is empty: ${absoluteOutputPath}`))
-          return
-        }
-        
-        console.log("[PROCESS] Metadata injection completed successfully")
-        console.log("[PROCESS] Output file:", absoluteOutputPath)
-        console.log("[PROCESS] Output file size:", stats.size, "bytes")
-        console.log("[PROCESS] To verify metadata, run: ffprobe", absoluteOutputPath)
-        
-        resolve(absoluteOutputPath)
-      })
-      .on("error", (err) => {
-        console.error("[PROCESS] FFmpeg error:", err.message)
-        console.error("[PROCESS] Output path was:", absoluteOutputPath)
-        console.error("[PROCESS] Output filename:", path.basename(absoluteOutputPath))
-        console.error("[PROCESS] Full error:", err)
-        reject(err)
-      })
-      .run()
-  })
+    // Cover art (APIC frame) - CRITICAL: Use correct APIC format
+    if (coverImageBuffer && coverImageBuffer.length > 0) {
+      // Use APIC key with proper structure (not "image")
+      tags.APIC = {
+        mime: coverMimeType,
+        type: 3, // Front cover (ID3v2.3 standard)
+        description: "Cover",
+        imageBuffer: coverImageBuffer,
+      }
+      console.log("[METADATA] APIC frame prepared:")
+      console.log("[METADATA]   - Mime type:", coverMimeType)
+      console.log("[METADATA]   - Type: 3 (Front cover)")
+      console.log("[METADATA]   - Buffer size:", coverImageBuffer.length, "bytes")
+    } else {
+      console.log("[METADATA] No cover art provided, skipping APIC frame")
+    }
+    
+    // Remove existing APIC frames first (to avoid duplicates)
+    console.log("[METADATA] Removing existing APIC frames...")
+    const bufferWithoutAPIC = NodeID3.update({ APIC: undefined }, audioBuffer)
+    const cleanedBuffer = bufferWithoutAPIC || audioBuffer
+    
+    // Update tags in the buffer using NodeID3.update() (not write)
+    console.log("[METADATA] Updating tags in audio buffer...")
+    const updatedBuffer = NodeID3.update(tags, cleanedBuffer)
+    
+    if (!updatedBuffer) {
+      throw new Error("Failed to update ID3 tags in audio buffer")
+    }
+    
+    const updatedSize = updatedBuffer.length
+    console.log("[METADATA] Tags updated:")
+    console.log("[METADATA]   - Original size:", originalSize, "bytes")
+    console.log("[METADATA]   - Updated size:", updatedSize, "bytes")
+    console.log("[METADATA]   - Size change:", updatedSize - originalSize, "bytes")
+    
+    // Write the updated buffer to output file
+    await fsPromises.writeFile(absoluteOutputPath, updatedBuffer)
+    console.log("[METADATA] Output file written:", absoluteOutputPath)
+    
+    // Validate output file exists and is not empty
+    if (!fs.existsSync(absoluteOutputPath)) {
+      throw new Error(`Output file missing after writing: ${absoluteOutputPath}`)
+    }
+    
+    const stats = fs.statSync(absoluteOutputPath)
+    if (stats.size === 0) {
+      throw new Error(`Output file is empty: ${absoluteOutputPath}`)
+    }
+    
+    console.log("[METADATA] Final MP3 size:", stats.size, "bytes")
+    console.log("[METADATA] Injection completed successfully")
+    
+    // Verify metadata was written (read back)
+    try {
+      const readTags = NodeID3.read(updatedBuffer)
+      console.log("[METADATA] Verification - Read back tags:")
+      console.log("[METADATA]   - Title:", readTags.title || "none")
+      console.log("[METADATA]   - Artist:", readTags.artist || "none")
+      console.log("[METADATA]   - Album:", readTags.album || "none")
+      console.log("[METADATA]   - Year:", readTags.year || "none")
+      console.log("[METADATA]   - Genre:", readTags.genre || "none")
+      console.log("[METADATA]   - Has APIC:", !!readTags.APIC)
+      if (readTags.APIC) {
+        console.log("[METADATA]   - APIC mime:", readTags.APIC.mime)
+        console.log("[METADATA]   - APIC type:", readTags.APIC.type)
+        console.log("[METADATA]   - APIC buffer size:", readTags.APIC.imageBuffer?.length || 0, "bytes")
+      }
+    } catch (error) {
+      console.warn("[METADATA] Could not verify tags:", error)
+    }
+    
+    console.log("[METADATA] ======================================")
+    
+    return absoluteOutputPath
+  } catch (error: any) {
+    console.error("[METADATA] Error processing metadata:", error)
+    throw new Error(`Failed to process metadata: ${error.message}`)
+  }
 }
 
