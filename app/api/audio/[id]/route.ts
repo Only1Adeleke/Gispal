@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import fs from "fs/promises"
+import fsSync from "fs"
 import path from "path"
 
 export const runtime = "nodejs"
@@ -19,47 +20,50 @@ export async function GET(
     }
 
     const audioId = params.id
-    const audio = await db.audios.findById(audioId)
+    console.log("[DOWNLOAD] Requesting audio ID:", audioId)
+    
+    // ALWAYS reconstruct filename from UUID - DO NOT rely on DB path
+    const filename = `final-${audioId}.mp3`
+    const filePath = path.join(process.cwd(), "uploads", filename)
 
-    if (!audio) {
+    console.log("[DOWNLOAD] Reconstructed file path:", filePath)
+    
+    // Check if file exists using fs.existsSync
+    if (!fsSync.existsSync(filePath)) {
+      console.error("[DOWNLOAD] File not found at path:", filePath)
       return NextResponse.json({ error: "Audio not found" }, { status: 404 })
     }
 
-    // Record download usage
-    await db.usage.record(session.user.id, "download", {
-      audioId: audio.id,
-    })
+    console.log("[DOWNLOAD] File exists, reading...")
 
-    // Return file path for download
-    const filePath = path.join(process.cwd(), "uploads", path.basename(audio.url))
-    
-    try {
-      await fs.access(filePath)
-    } catch {
-      return NextResponse.json({ error: "File not found" }, { status: 404 })
-    }
-
+    // Read file
     const fileBuffer = await fs.readFile(filePath)
-    const ext = path.extname(filePath).toLowerCase()
-    
-    const contentTypeMap: Record<string, string> = {
-      ".mp3": "audio/mpeg",
-      ".wav": "audio/wav",
-      ".ogg": "audio/ogg",
-      ".m4a": "audio/mp4",
-      ".aac": "audio/aac",
-    }
-    
-    const contentType = contentTypeMap[ext] || "application/octet-stream"
+    console.log("[DOWNLOAD] File read successfully, size:", fileBuffer.length, "bytes")
 
+    // Record download usage (try to get audio from DB for usage tracking, but don't fail if not found)
+    try {
+      const audio = await db.audios.findById(audioId)
+      if (audio) {
+        await db.usage.record(session.user.id, "download", {
+          audioId: audio.id,
+        })
+      }
+    } catch (usageError) {
+      console.warn("[DOWNLOAD] Failed to record usage:", usageError)
+      // Continue with download even if usage recording fails
+    }
+
+    // Serve the audio with correct headers
     return new NextResponse(fileBuffer, {
       headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${audio.title}.mp3"`,
+        "Content-Type": "audio/mpeg",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Length": fileBuffer.length.toString(),
       },
     })
   } catch (error: any) {
-    console.error("Error downloading audio:", error)
+    console.error("[DOWNLOAD] Error:", error)
+    console.error("[DOWNLOAD] Stack:", error.stack)
     return NextResponse.json(
       { error: error.message || "Failed to download audio" },
       { status: 500 }

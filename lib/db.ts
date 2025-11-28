@@ -1,6 +1,7 @@
 // Database types and utilities
 // In production, replace with your actual database client (Prisma, Drizzle, etc.)
 
+import { randomUUID } from "crypto"
 // Import persistence functions
 import { loadJingles, saveJingles, loadCoverArts, saveCoverArts, loadAudios, saveAudios } from "./db-persistence"
 
@@ -91,6 +92,17 @@ export interface Usage {
   history: UsageHistory[]
 }
 
+export interface Staging {
+  id: string
+  userId: string
+  filePath: string
+  filename: string
+  duration?: number
+  extractedCoverArt?: string
+  extractedMetadata?: any
+  createdAt: Date
+}
+
 // In-memory storage for development
 // Replace with actual database in production
 const users: Map<string, User> = new Map()
@@ -100,6 +112,7 @@ const mixes: Map<string, Mix> = new Map()
 const audios: Map<string, Audio> = new Map()
 const apiKeys: Map<string, ApiKey> = new Map()
 const usage: Map<string, Usage> = new Map()
+const staging: Map<string, Staging> = new Map()
 
 // Load persisted data on module initialization
 let persistenceInitialized = false
@@ -285,10 +298,10 @@ export const db = {
     findById: async (id: string): Promise<Audio | null> => {
       return audios.get(id) || null
     },
-    create: async (data: Omit<Audio, "id" | "createdAt">): Promise<Audio> => {
+    create: async (data: Omit<Audio, "id" | "createdAt">, id?: string): Promise<Audio> => {
       const audio: Audio = {
         ...data,
-        id: crypto.randomUUID(),
+        id: id || crypto.randomUUID(),
         createdAt: new Date(),
       }
       audios.set(audio.id, audio)
@@ -410,6 +423,26 @@ export const db = {
     },
     findById: async (userId: string): Promise<Usage | null> => {
       return usage.get(userId) || null
+    },
+  },
+  staging: {
+    findById: async (id: string): Promise<Staging | null> => {
+      return staging.get(id) || null
+    },
+    create: async (data: Omit<Staging, "id" | "createdAt">, id?: string): Promise<Staging> => {
+      const stagingEntry: Staging = {
+        ...data,
+        id: id || randomUUID(),
+        createdAt: new Date(),
+      }
+      staging.set(stagingEntry.id, stagingEntry)
+      return stagingEntry
+    },
+    delete: async (id: string): Promise<void> => {
+      staging.delete(id)
+    },
+    findByUserId: async (userId: string): Promise<Staging[]> => {
+      return Array.from(staging.values()).filter(s => s.userId === userId)
     },
   },
 }

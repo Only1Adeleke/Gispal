@@ -1,5 +1,6 @@
 export const runtime = "nodejs"
 
+import type { NextRequest } from "next/server"
 import { betterAuth } from "better-auth"
 import Database from "better-sqlite3"
 import path from "path"
@@ -61,4 +62,22 @@ try {
 }
 
 export { auth }
+
+/**
+ * Get session from NextRequest - for use in API routes
+ * This is a convenience wrapper around auth.api.getSession
+ */
+export async function getSession(request: NextRequest) {
+  try {
+    // NextRequest.headers is compatible with Headers for Better Auth
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    })
+    
+    return session
+  } catch (error) {
+    console.error("[AUTH] Error getting session:", error)
+    return null
+  }
+}
 

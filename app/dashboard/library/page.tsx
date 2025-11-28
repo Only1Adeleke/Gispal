@@ -109,8 +109,16 @@ export default function LibraryPage() {
   }
 
   const handleDownload = (audio: Audio) => {
+    if (!audio.url) {
+      toast.error("Audio URL is missing. Cannot download.")
+      return
+    }
+    
+    // Use the API route for downloading to ensure proper file serving
+    const downloadUrl = `/api/audio/${audio.id}`
+    
     const link = document.createElement("a")
-    link.href = audio.url
+    link.href = downloadUrl
     link.download = `${audio.title}.mp3`
     document.body.appendChild(link)
     link.click()
@@ -162,8 +170,16 @@ export default function LibraryPage() {
 
   const handleRegenerate = async (audio: Audio) => {
     try {
+      // Validate audio URL exists
+      if (!audio.url) {
+        toast.error("Audio URL is missing. Cannot regenerate.")
+        return
+      }
+      
       // Download the audio file to staging
-      const response = await fetch(audio.url.startsWith("http") ? audio.url : `http://localhost:3000${audio.url}`)
+      const audioUrl = audio.url.startsWith("http") ? audio.url : `http://localhost:3000${audio.url}`
+      console.log("[REGENERATE] Fetching audio from:", audioUrl)
+      const response = await fetch(audioUrl)
       if (!response.ok) {
         throw new Error("Failed to fetch audio file")
       }

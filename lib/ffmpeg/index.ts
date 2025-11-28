@@ -351,32 +351,19 @@ export async function mixAudio(options: MixOptions): Promise<string> {
         command = command.outputOptions(["-map", "0:a"])
       }
 
-      // Add cover art if provided (as metadata)
-      if (coverArtPath) {
-        command = command.input(coverArtPath)
-        const coverArtIndex = inputIndex
-        
-        command = command.outputOptions([
-          "-map", currentAudioStream,
-          "-map", `${coverArtIndex}:v?`,
-          "-c:a", "libmp3lame",
-          "-b:a", "192k",
-          "-c:v", "copy",
-          "-id3v2_version", "3",
-          "-write_id3v1", "1",
-        ])
-      } else {
-        // Just audio, no cover art
-        command = command.outputOptions([
-          "-c:a", "libmp3lame",
-          "-b:a", "192k",
-        ])
-      }
+      // CRITICAL: Do NOT add cover art or metadata during mixing
+      // Cover art and metadata are applied AFTER mixing using node-id3
+      // Just audio encoding, no metadata
+      command = command.outputOptions([
+        "-c:a", "libmp3lame",
+        "-b:a", "192k",
+      ])
 
-      // Add metadata if provided
-      // CRITICAL: Metadata values are ONLY for ID3 tags, NEVER for filenames
-      // Use proper escaping to prevent FFmpeg from misinterpreting metadata as filenames
+      // CRITICAL: Do NOT apply metadata during mixing
+      // Metadata is applied AFTER mixing using node-id3 for reliability
+      // Only log if metadata was provided (should be undefined for mixing)
       if (metadata) {
+        console.log("[FFMPEG] WARNING: Metadata provided to mixAudio - will be ignored (metadata applied after mixing)")
         if (metadata.title) {
           // Sanitize title - replace ALL spaces and special chars with underscores
           // This prevents FFmpeg from misinterpreting "Seyi Vibez" as separate arguments
