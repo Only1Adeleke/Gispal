@@ -106,6 +106,8 @@ export function ProcessingDialog({
   const [coverArtSource, setCoverArtSource] = useState<"original" | "default" | "custom">(
     extractedCoverArt ? "original" : "default"
   )
+  const [selectedCoverArtPath, setSelectedCoverArtPath] = useState<string | null>(null)
+  const [uploadingCoverArt, setUploadingCoverArt] = useState(false)
 
   const form = useForm<ProcessingFormValues>({
     resolver: zodResolver(processingSchema),
@@ -161,9 +163,14 @@ export function ProcessingDialog({
       const response = await fetch("/api/cover-art")
       if (response.ok) {
         const data = await response.json()
-        const defaultArt = data.find((art: any) => art.isDefault)
-        if (defaultArt) {
-          setDefaultCoverArt(defaultArt.fileUrl)
+        // New system: data is array of { id, path, filename }
+        if (data.length > 0) {
+          // Use the first cover art as default, or find one marked as default
+          const defaultArt = data.find((art: any) => art.isDefault) || data[0]
+          if (defaultArt.path) {
+            setDefaultCoverArt(defaultArt.path)
+            setSelectedCoverArtPath(defaultArt.path)
+          }
         }
       }
     } catch (error) {
@@ -177,31 +184,73 @@ export function ProcessingDialog({
     
     if (source === "original") {
       setCoverArtPreview(extractedCoverArt)
+      setSelectedCoverArtPath(null) // Original is extracted, not stored
     } else if (source === "default") {
       setCoverArtPreview(defaultCoverArt)
+      // Fetch default cover art path
+      fetchDefaultCoverArt().then(() => {
+        // Path will be set in fetchDefaultCoverArt
+      })
     } else {
       setCoverArtPreview(null)
+      setSelectedCoverArtPath(null)
     }
   }
 
-  const handleCoverArtUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCoverArtUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        setCoverArtPreview(event.target?.result as string)
+    if (!file) return
+
+    setUploadingCoverArt(true)
+    try {
+      // Upload to new endpoint
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch("/api/cover-art/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to upload cover art")
       }
-      reader.readAsDataURL(file)
-      form.setValue("coverArtFile", file)
-      setCoverArtSource("custom")
-      form.setValue("coverArtSource", "custom")
+
+      const result = await response.json()
+      if (result.success && result.path) {
+        setSelectedCoverArtPath(result.path)
+        
+        // Set preview from uploaded file
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          setCoverArtPreview(event.target?.result as string)
+        }
+        reader.readAsDataURL(file)
+        
+        setCoverArtSource("custom")
+        form.setValue("coverArtSource", "custom")
+        toast.success("Cover art uploaded successfully")
+      } else {
+        throw new Error("Invalid response from upload endpoint")
+      }
+    } catch (error: any) {
+      console.error("Failed to upload cover art:", error)
+      toast.error(error.message || "Failed to upload cover art")
+    } finally {
+      setUploadingCoverArt(false)
     }
   }
 
   const onSubmit = async (values: ProcessingFormValues) => {
     setProcessing(true)
     try {
-      await onProcess(values)
+      // Include coverArt path in the payload
+      const processData = {
+        ...values,
+        coverArt: selectedCoverArtPath || (coverArtSource === "default" && defaultCoverArt) || null,
+      }
+      await onProcess(processData)
     } catch (error: any) {
       toast.error(error.message || "Failed to process audio")
     } finally {
@@ -392,11 +441,24 @@ export function ProcessingDialog({
                   {coverArtPreview && (
                     <div className="relative w-full h-64 rounded-2xl overflow-hidden border-2 shadow-xl bg-muted group hover:scale-[1.02] transition-transform duration-300">
                       <img
-                        src={coverArtPreview}
+                        src={
+                          coverArtPreview.startsWith("/storage/cover-art/")
+                            ? `/api/storage${coverArtPreview.replace("/storage", "")}`
+                            : coverArtPreview.startsWith("data:")
+                            ? coverArtPreview
+                            : coverArtPreview.startsWith("http")
+                            ? coverArtPreview
+                            : coverArtPreview
+                        }
                         alt="Cover art preview"
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                      {uploadingCoverArt && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <Loader2 className="h-8 w-8 animate-spin text-white" />
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -436,7 +498,14 @@ export function ProcessingDialog({
                         accept="image/*"
                         onChange={handleCoverArtUpload}
                         className="cursor-pointer"
+                        disabled={uploadingCoverArt}
                       />
+                      {uploadingCoverArt && (
+                        <p className="text-sm text-muted-foreground mt-2 flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Uploading cover art...
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

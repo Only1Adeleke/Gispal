@@ -357,11 +357,13 @@ export async function POST(request: NextRequest) {
             jinglePath = tempJinglePath
           }
 
-          jingleConfigs.push({
-            path: jinglePath,
-            position: "start", // Default to start position
-            volume: 1.0, // Default volume
-          })
+          if (jinglePath) {
+            jingleConfigs.push({
+              path: jinglePath,
+              position: "start", // Default to start position
+              volume: 1.0, // Default volume
+            })
+          }
         }
 
         // Mix audio with jingles

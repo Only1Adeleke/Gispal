@@ -65,6 +65,7 @@ export interface Audio {
   album?: string
   producer?: string
   year?: string
+  coverArt?: string | null // Path to cover art: /storage/cover-art/{userId}/{uuid}.jpg
 }
 
 export interface ApiKey {

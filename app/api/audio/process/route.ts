@@ -116,8 +116,9 @@ export async function POST(request: NextRequest) {
       jingleId,
       position,
       volume,
-      coverArtSource,
-      coverArtFile,
+      coverArt, // New: direct path to cover art /storage/cover-art/{userId}/{uuid}.jpg
+      coverArtSource, // Legacy support
+      coverArtFile, // Legacy support
     } = body
 
     if (!stagingId || !title) {
@@ -228,37 +229,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle cover art source
+    // Handle cover art - NEW SYSTEM: use coverArt path directly
     let coverArtPath: string | undefined
-    if (coverArtSource === "custom" && coverArtFile) {
-      console.log("[PROCESS] Custom cover art upload not yet implemented, will use default")
-    } else if (coverArtSource === "original") {
-      try {
-        const extractedCoverPath = await extractCoverArt(stagingPath)
-        if (extractedCoverPath) {
-          coverArtPath = extractedCoverPath
-          console.log("[PROCESS] Extracted cover art from staging file:", coverArtPath)
-        }
-      } catch (error) {
-        console.error("[PROCESS] Failed to extract cover art:", error)
+    
+    if (coverArt && typeof coverArt === "string" && coverArt.startsWith("/storage/cover-art/")) {
+      // New system: direct path provided
+      coverArtPath = path.join(process.cwd(), coverArt)
+      console.log("[PROCESS] Using cover art from new system:", coverArtPath)
+      
+      if (!fs.existsSync(coverArtPath)) {
+        console.error("[PROCESS] Cover art file not found:", coverArtPath)
+        coverArtPath = undefined
       }
-    } else if (coverArtSource === "default") {
-      const userId = session?.user?.id
-      if (!userId) {
-        console.log("[PROCESS] No user ID for default cover art, skipping")
-      } else {
-        const userCoverArts = await db.coverArts.findByUserId(userId)
-        const defaultArt = userCoverArts.find(art => art.isDefault)
-        if (defaultArt) {
-          const coverResponse = await fetch(defaultArt.fileUrl.startsWith("http") 
-            ? defaultArt.fileUrl 
-            : `http://localhost:3000${defaultArt.fileUrl}`)
-          if (coverResponse.ok) {
-            const coverBuffer = await coverResponse.arrayBuffer()
-            const coverFilename = `cover_default_${Date.now()}.jpg`
-            coverArtPath = await tempStorage.save(Buffer.from(coverBuffer), coverFilename)
-            console.log("[PROCESS] Default cover art downloaded to:", coverArtPath)
+    } else {
+      // Legacy support: try to extract or use default
+      console.log("[PROCESS] Legacy cover art handling - coverArtSource:", coverArtSource || "not specified")
+      
+      if (coverArtSource === "original") {
+        try {
+          const extractedCoverPath = await extractCoverArt(stagingPath)
+          if (extractedCoverPath) {
+            coverArtPath = extractedCoverPath
+            console.log("[PROCESS] Extracted cover art from staging file:", coverArtPath)
           }
+        } catch (error) {
+          console.error("[PROCESS] Failed to extract cover art:", error)
         }
       }
     }
@@ -321,23 +316,27 @@ export async function POST(request: NextRequest) {
     // STEP 2: Apply metadata and cover art AFTER mixing
     console.log("[PROCESS] Step 2: Applying metadata and cover art...")
     
+    // Use the cover art path we already resolved
     let finalCoverArtPath = coverArtPath
-    if (!finalCoverArtPath && session?.user?.id) {
-      const userCoverArts = await db.coverArts.findByUserId(session.user.id)
-      const defaultArt = userCoverArts.find(art => art.isDefault)
-      if (defaultArt) {
-        console.log("[PROCESS] Using default cover art:", defaultArt.fileUrl)
-        const coverResponse = await fetch(defaultArt.fileUrl.startsWith("http") 
-          ? defaultArt.fileUrl 
-          : `http://localhost:3000${defaultArt.fileUrl}`)
-        if (coverResponse.ok) {
-          const coverBuffer = await coverResponse.arrayBuffer()
-          const coverFilename = `cover_default_${Date.now()}.jpg`
-          finalCoverArtPath = await tempStorage.save(Buffer.from(coverBuffer), coverFilename)
-          console.log("[PROCESS] Default cover art downloaded to:", finalCoverArtPath)
-        }
+    
+    // Log final cover art path and verify it exists
+    if (finalCoverArtPath) {
+      console.log("[PROCESS] ✅ Final cover art path resolved:", finalCoverArtPath)
+      if (!fs.existsSync(finalCoverArtPath)) {
+        console.error("[PROCESS] ❌ Cover art file does not exist:", finalCoverArtPath)
+        finalCoverArtPath = undefined
+      } else {
+        const stats = fs.statSync(finalCoverArtPath)
+        console.log("[PROCESS] Cover art file size:", stats.size, "bytes")
       }
+    } else {
+      console.log("[PROCESS] ⚠️ No cover art will be embedded")
     }
+    
+    // Convert coverArtPath to storage path format for database
+    const coverArtStoragePath = finalCoverArtPath 
+      ? finalCoverArtPath.replace(process.cwd(), "").replace(/\\/g, "/")
+      : null
     
     const finalAudioPath = await processAudioMetadata(
       mixedAudioPath,
@@ -451,6 +450,7 @@ export async function POST(request: NextRequest) {
       tags: tags || null,
       url: `/uploads/${outputFilename}`, // Use 'url' property as expected by Audio interface
       duration: finalDuration,
+      coverArt: coverArtStoragePath, // Store cover art path
     }, uuid) // Pass UUID as second parameter to use as audio ID
     
     console.log("[PROCESS] Audio saved to database:")
@@ -591,7 +591,7 @@ async function debugReadTags(filePath: string): Promise<void> {
   }
 }
 
-// ROBUST METADATA INJECTION FUNCTION
+// METADATA INJECTION FUNCTION - Uses NodeID3.write() as specified
 async function processAudioMetadata(
   inputPath: string,
   outputPath: string,
@@ -626,147 +626,116 @@ async function processAudioMetadata(
     console.log("[TAG] Input file:", absoluteInputPath)
     console.log("[TAG] Output file:", absoluteOutputPath)
     
-    // Read mixed MP3 into buffer
+    // Read input audio file
     const audioBuffer = await fsPromises.readFile(absoluteInputPath)
-    const mixedFileSize = audioBuffer.length
-    console.log("[TAG] Mixed file size:", mixedFileSize, "bytes")
+    console.log("[TAG] Input file size:", audioBuffer.length, "bytes")
     
-    // Prepare cover art
+    // Prepare cover art buffer
     let coverImageBuffer: Buffer | undefined
-    let coverMimeType: string = "image/jpeg"
     
     if (coverArtPath) {
       const absoluteCoverPath = path.resolve(coverArtPath)
       console.log("[TAG] Loading cover art from:", absoluteCoverPath)
       
       if (!fs.existsSync(absoluteCoverPath)) {
-        console.warn("[TAG] Cover art file not found:", absoluteCoverPath)
+        console.error("[TAG] ❌ Cover art file not found:", absoluteCoverPath)
       } else {
-        const coverExt = path.extname(absoluteCoverPath).toLowerCase()
-        coverMimeType = coverExt === ".png" ? "image/png" : "image/jpeg"
-        
         coverImageBuffer = await fsPromises.readFile(absoluteCoverPath)
-        console.log("[TAG] Loaded cover: path=", absoluteCoverPath, ", mime=", coverMimeType, ", size=", coverImageBuffer.length, "bytes")
+        console.log("[TAG] ✅ Loaded cover art:", coverImageBuffer.length, "bytes")
         
-        if (!coverImageBuffer || coverImageBuffer.length === 0) {
-          console.warn("[TAG] Cover art buffer is empty")
-          coverImageBuffer = undefined
-        } else {
-          // Validate magic bytes
-          const isPNG = coverImageBuffer[0] === 0x89 && coverImageBuffer[1] === 0x50 && coverImageBuffer[2] === 0x4E && coverImageBuffer[3] === 0x47
-          const isJPEG = coverImageBuffer[0] === 0xFF && coverImageBuffer[1] === 0xD8 && coverImageBuffer[2] === 0xFF
-          
-          if (!isPNG && !isJPEG) {
-            console.warn("[TAG] Cover art may not be valid PNG/JPEG")
-          }
+        // Validate it's a valid image
+        const isJPEG = coverImageBuffer[0] === 0xFF && coverImageBuffer[1] === 0xD8 && coverImageBuffer[2] === 0xFF
+        const isPNG = coverImageBuffer[0] === 0x89 && coverImageBuffer[1] === 0x50 && coverImageBuffer[2] === 0x4E && coverImageBuffer[3] === 0x47
+        
+        if (!isJPEG && !isPNG) {
+          console.warn("[TAG] ⚠️ Cover art may not be valid JPEG/PNG")
         }
       }
+    } else {
+      console.log("[TAG] No cover art path provided")
     }
     
-    // Build tags with proper image format
-    const tags: NodeID3.Tags = {}
+    // Build tags object as specified
+    const finalTags: NodeID3.Tags = {
+      title: metadata.title,
+      artist: metadata.artist,
+      album: metadata.album,
+      year: metadata.year || new Date().getFullYear().toString(),
+      genre: metadata.tags,
+    }
     
-    if (metadata.title) tags.title = metadata.title
-    if (metadata.artist) tags.artist = metadata.artist
-    if (metadata.album) tags.album = metadata.album
-    if (metadata.year) tags.year = metadata.year
-    if (metadata.tags) tags.genre = metadata.tags
-    
+    // Add producer if provided
     if (metadata.producer) {
-      tags.userDefinedText = [{
+      finalTags.userDefinedText = [{
         description: "PRODUCER",
         value: metadata.producer,
       }]
     }
     
-    // CRITICAL: Proper image format for node-id3
+    // Add cover art image as specified
     if (coverImageBuffer && coverImageBuffer.length > 0) {
-      const normalizedMime = coverMimeType === "image/jpg" ? "image/jpeg" : coverMimeType
-      
-      tags.image = {
-        mime: normalizedMime,
+      finalTags.image = {
+        mime: "image/jpeg",
         type: {
           id: 3,
-          name: "Front Cover"
+          name: "front cover"
         },
         description: "Cover",
         imageBuffer: coverImageBuffer,
       }
       
-      console.log("[TAG] Tags prepared:")
-      console.log("[TAG]   - Title:", tags.title || "none")
-      console.log("[TAG]   - Artist:", tags.artist || "none")
-      console.log("[TAG]   - Has image:", !!tags.image)
-      console.log("[TAG]   - Image mime:", normalizedMime)
+      console.log("[TAG] ✅ Cover art prepared for embedding")
       console.log("[TAG]   - Image buffer size:", coverImageBuffer.length, "bytes")
+      console.log("[TAG]   - Mime type: image/jpeg")
+      console.log("[TAG]   - Type: { id: 3, name: 'front cover' }")
     } else {
-      console.log("[TAG] No cover art provided")
+      console.log("[TAG] ⚠️ No cover art to embed")
     }
     
-    // Remove existing image frames
-    console.log("[TAG] Removing existing image frames...")
-    const bufferWithoutImage = NodeID3.update({ image: undefined }, audioBuffer)
-    const cleanedBuffer = bufferWithoutImage || audioBuffer
+    console.log("[TAG] Final tags prepared:")
+    console.log("[TAG]   - Title:", finalTags.title || "none")
+    console.log("[TAG]   - Artist:", finalTags.artist || "none")
+    console.log("[TAG]   - Album:", finalTags.album || "none")
+    console.log("[TAG]   - Year:", finalTags.year || "none")
+    console.log("[TAG]   - Has image:", !!finalTags.image)
     
-    // Attempt buffer-based update first
-    console.log("[TAG] Calling NodeID3.update(buffer)...")
-    let updatedBuffer = NodeID3.update(tags, cleanedBuffer)
+    // Copy input file to output first (NodeID3.write needs an existing MP3 file)
+    await fsPromises.copyFile(absoluteInputPath, absoluteOutputPath)
+    console.log("[TAG] Copied input file to output path")
     
-    console.log("[TAG] update(buffer) returned Buffer?", !!updatedBuffer)
-    if (updatedBuffer) {
-      console.log("[TAG] buffer length:", updatedBuffer.length, "bytes")
+    // Use NodeID3.write() to overwrite the file with metadata
+    console.log("[TAG] Calling NodeID3.write() to embed metadata...")
+    const writeResult = NodeID3.write(finalTags, absoluteOutputPath)
+    
+    if (!writeResult) {
+      throw new Error("NodeID3.write() failed - returned false")
     }
     
-    // Fallback to file-based update if buffer update fails
-    if (!updatedBuffer) {
-      console.log("[TAG] Buffer update failed, trying file-based update...")
-      const result = NodeID3.update(tags, absoluteInputPath)
-      console.log("[TAG] update(filePath) returned:", result)
-      
-      if (result) {
-        // Read the updated file
-        updatedBuffer = await fsPromises.readFile(absoluteInputPath)
-      } else {
-        throw new Error("NodeID3.update() failed for both buffer and file")
-      }
-    }
-    
-    // Write buffer to final path
-    console.log("[TAG] Writing final file...")
-    await fsPromises.writeFile(absoluteOutputPath, updatedBuffer)
+    console.log("[TAG] ✅ NodeID3.write() completed successfully")
     
     const finalStats = fs.statSync(absoluteOutputPath)
     console.log("[AUDIO] Final file written:", absoluteOutputPath)
     console.log("[TAG] Final file size:", finalStats.size, "bytes")
     
     // CRITICAL VERIFICATION: Read back from disk
-    console.log("[TAG-VERIFY] Reading tags from final file...")
+    console.log("[TAG-VERIFY] ========== VERIFICATION ==========")
     const fileFromDisk = await fsPromises.readFile(absoluteOutputPath)
     const readTags = NodeID3.read(fileFromDisk)
     
-    console.log("[TAG-VERIFY] readTags keys:", Object.keys(readTags))
-    console.log("[TAG-VERIFY] Has image:", !!readTags.image)
+    console.log("[TAG-VERIFY] Reading tags from final file...")
+    console.log("[TAG-VERIFY] Has image:", readTags.image !== undefined)
     
-    // Verify all metadata fields
-    console.log("[TAG-VERIFY] Metadata verification:")
-    console.log("[TAG-VERIFY]   - Title:", readTags.title || "MISSING")
-    console.log("[TAG-VERIFY]   - Artist:", readTags.artist || "MISSING")
-    console.log("[TAG-VERIFY]   - Album:", readTags.album || "MISSING")
-    console.log("[TAG-VERIFY]   - Year:", readTags.year || "MISSING")
-    console.log("[TAG-VERIFY]   - Genre:", readTags.genre || "MISSING")
-    
-    if (readTags.image) {
+    // Verify image was embedded
+    if (readTags.image !== undefined) {
       if (typeof readTags.image === "object" && readTags.image !== null) {
-        console.log("[TAG-VERIFY] image.mime:", readTags.image.mime)
-        console.log("[TAG-VERIFY] image.type:", JSON.stringify(readTags.image.type))
         const imageBufferLength = readTags.image.imageBuffer?.length || 0
         console.log("[VERIFY] Image buffer length:", imageBufferLength)
         
-        if (readTags.image.imageBuffer && readTags.image.imageBuffer.length > 0) {
+        if (imageBufferLength > 0) {
           console.log("[TAG-VERIFY] ✅ VERIFICATION SUCCESS - Image buffer is populated!")
+          console.log("[TAG-VERIFY] ✅ APIC frame exists in final file!")
         } else {
           console.error("[TAG-VERIFY] ❌ VERIFICATION FAILED - Image buffer is empty!")
-          console.error("[TAG-VERIFY] ⚠️ Image exists in buffer but not in file - possible write issue!")
           throw new Error("Cover art verification failed: image buffer is empty after write")
         }
       } else {
@@ -774,28 +743,21 @@ async function processAudioMetadata(
         throw new Error("Cover art verification failed: image is not embedded object")
       }
     } else {
-      // Check if image was supposed to be embedded
       if (coverImageBuffer && coverImageBuffer.length > 0) {
         console.error("[TAG-VERIFY] ❌ VERIFICATION FAILED - Image tag missing!")
-        console.error("[TAG-VERIFY] ⚠️ METADATA LOST AFTER WRITE - Image exists in buffer but not in file!")
-        console.error("[TAG-VERIFY] Failure details:")
-        console.error("[TAG-VERIFY]   - mime type:", coverMimeType)
-        console.error("[TAG-VERIFY]   - coverPath:", coverArtPath)
-        console.error("[TAG-VERIFY]   - coverImageBuffer.length:", coverImageBuffer.length)
-        console.error("[TAG-VERIFY]   - tags.image:", JSON.stringify(tags.image, null, 2))
-        console.error("[TAG-VERIFY]   - updatedBuffer.length:", updatedBuffer.length)
-        console.error("[TAG-VERIFY]   - final file size:", finalStats.size)
+        console.error("[TAG-VERIFY] Cover art was provided but not embedded in final file!")
         throw new Error("Cover art verification failed: image tag missing in final file")
       } else {
         console.log("[TAG-VERIFY] No cover art was provided, skipping image verification")
       }
     }
     
+    console.log("[TAG-VERIFY] ==================================")
     console.log("[TAG] ======================================")
     
     return absoluteOutputPath
   } catch (error: any) {
-    console.error("[TAG] Error processing metadata:", error.message)
+    console.error("[TAG] ❌ Error processing metadata:", error.message)
     console.error("[TAG] Stack:", error.stack)
     throw error
   }
