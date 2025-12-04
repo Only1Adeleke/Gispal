@@ -24,29 +24,47 @@ export async function GET(
     
     // ALWAYS reconstruct filename from UUID - DO NOT rely on DB path
     const filename = `final-${audioId}.mp3`
-    const filePath = path.join(process.cwd(), "uploads", filename)
+    const uploadsDir = path.join(process.cwd(), "uploads")
+    
+    // Ensure uploads directory exists
+    if (!fsSync.existsSync(uploadsDir)) {
+      fsSync.mkdirSync(uploadsDir, { recursive: true })
+      console.log("[DOWNLOAD] Created uploads directory:", uploadsDir)
+    }
+    
+    const filePath = path.join(uploadsDir, filename)
+    const absoluteFilePath = path.resolve(filePath)
 
-    console.log("[DOWNLOAD] Reconstructed file path:", filePath)
+    console.log("[DOWNLOAD] Reconstructed file path:", absoluteFilePath)
+    console.log("[DOWNLOAD] Uploads directory:", uploadsDir)
+    console.log("[DOWNLOAD] File exists check:", fsSync.existsSync(absoluteFilePath))
     
     // Check if file exists using fs.existsSync
-    if (!fsSync.existsSync(filePath)) {
-      console.error("[DOWNLOAD] File not found at path:", filePath)
+    if (!fsSync.existsSync(absoluteFilePath)) {
+      console.error("[DOWNLOAD] File not found at path:", absoluteFilePath)
+      console.error("[DOWNLOAD] Current working directory:", process.cwd())
+      console.error("[DOWNLOAD] Uploads directory contents:", fsSync.existsSync(uploadsDir) ? fsSync.readdirSync(uploadsDir).slice(0, 5).join(", ") : "directory does not exist")
       return NextResponse.json({ error: "Audio not found" }, { status: 404 })
     }
 
     console.log("[DOWNLOAD] File exists, reading...")
 
-    // Read file
-    const fileBuffer = await fs.readFile(filePath)
+    // Read file using absolute path
+    const fileBuffer = await fs.readFile(absoluteFilePath)
     console.log("[DOWNLOAD] File read successfully, size:", fileBuffer.length, "bytes")
+    
+    if (fileBuffer.length === 0) {
+      console.error("[DOWNLOAD] File is empty!")
+      return NextResponse.json({ error: "Audio file is empty" }, { status: 500 })
+    }
 
     // Record download usage (try to get audio from DB for usage tracking, but don't fail if not found)
     try {
       const audio = await db.audios.findById(audioId)
       if (audio) {
-        await db.usage.record(session.user.id, "download", {
-          audioId: audio.id,
-        })
+      await db.usage.record(session.user.id, "download", {
+        audioId: audio.id,
+      })
       }
     } catch (usageError) {
       console.warn("[DOWNLOAD] Failed to record usage:", usageError)
@@ -54,11 +72,17 @@ export async function GET(
     }
 
     // Serve the audio with correct headers
+    console.log("[DOWNLOAD] Serving file with headers:")
+    console.log("[DOWNLOAD]   - Content-Type: audio/mpeg")
+    console.log("[DOWNLOAD]   - Content-Length:", fileBuffer.length)
+    console.log("[DOWNLOAD]   - Filename:", filename)
+
     return new NextResponse(fileBuffer, {
       headers: {
         "Content-Type": "audio/mpeg",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Content-Length": fileBuffer.length.toString(),
+        "Cache-Control": "no-cache",
       },
     })
   } catch (error: any) {

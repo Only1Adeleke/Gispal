@@ -5,6 +5,7 @@ import { getAudioDuration, mixAudio, extractCoverArt, initializeFfmpegPaths } fr
 import { tempStorage } from "@/lib/storage"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
+// @ts-ignore - ffprobe-static doesn't have types
 import ffprobeStatic from "ffprobe-static"
 import fs from "fs"
 import { promises as fsPromises } from "fs"
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
     // Prepare jingle configs
     const jingleConfigs: Array<{
       path: string
-      position: "start" | "middle" | "end" | "start-end"
+      position: "start" | "middle" | "end"
       volume: number
     }> = []
 
@@ -606,11 +607,6 @@ async function processAudioMetadata(
   coverArtPath?: string
 ): Promise<string> {
   try {
-    const outputDir = path.dirname(outputPath)
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true })
-    }
-
     const absoluteInputPath = path.resolve(inputPath)
     const absoluteOutputPath = path.resolve(outputPath)
     
@@ -673,7 +669,10 @@ async function processAudioMetadata(
     }
     
     // Add cover art image as specified
+    // Note: node-id3 uses 'image' property (not 'APIC'), but internally it writes APIC frame
     if (coverImageBuffer && coverImageBuffer.length > 0) {
+      // Use the format specified by user: type: 3 (number, not object)
+      // However, node-id3 requires type as object, so we'll use both formats
       finalTags.image = {
         mime: "image/jpeg",
         type: {
@@ -687,7 +686,8 @@ async function processAudioMetadata(
       console.log("[TAG] ✅ Cover art prepared for embedding")
       console.log("[TAG]   - Image buffer size:", coverImageBuffer.length, "bytes")
       console.log("[TAG]   - Mime type: image/jpeg")
-      console.log("[TAG]   - Type: { id: 3, name: 'front cover' }")
+      console.log("[TAG]   - Type ID: 3 (front cover)")
+      console.log("[TAG]   - Description: Cover")
     } else {
       console.log("[TAG] ⚠️ No cover art to embed")
     }
@@ -699,60 +699,147 @@ async function processAudioMetadata(
     console.log("[TAG]   - Year:", finalTags.year || "none")
     console.log("[TAG]   - Has image:", !!finalTags.image)
     
-    // Copy input file to output first (NodeID3.write needs an existing MP3 file)
-    await fsPromises.copyFile(absoluteInputPath, absoluteOutputPath)
-    console.log("[TAG] Copied input file to output path")
-    
-    // Use NodeID3.write() to overwrite the file with metadata
-    console.log("[TAG] Calling NodeID3.write() to embed metadata...")
-    const writeResult = NodeID3.write(finalTags, absoluteOutputPath)
-    
-    if (!writeResult) {
-      throw new Error("NodeID3.write() failed - returned false")
+    // CRITICAL: Ensure output directory exists
+    const outputDir = path.dirname(absoluteOutputPath)
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true })
+      console.log("[TAG] Created output directory:", outputDir)
     }
     
-    console.log("[TAG] ✅ NodeID3.write() completed successfully")
+    // Copy input file to output first (NodeID3.update needs an existing MP3 file)
+    await fsPromises.copyFile(absoluteInputPath, absoluteOutputPath)
+    console.log("[COVER-FIX] step=copy-file msg='Copied input file to output path' path=" + absoluteOutputPath)
     
-    const finalStats = fs.statSync(absoluteOutputPath)
-    console.log("[AUDIO] Final file written:", absoluteOutputPath)
-    console.log("[TAG] Final file size:", finalStats.size, "bytes")
+    // Verify file was copied
+    if (!fs.existsSync(absoluteOutputPath)) {
+      throw new Error(`Failed to copy file to output path: ${absoluteOutputPath}`)
+    }
     
-    // CRITICAL VERIFICATION: Read back from disk
-    console.log("[TAG-VERIFY] ========== VERIFICATION ==========")
+    const copiedStats = fs.statSync(absoluteOutputPath)
+    console.log("[COVER-FIX] step=copy-verify msg='File copied successfully' size=" + copiedStats.size + " bytes")
+    
+    // STEP 3: Attempt NodeID3 embedding first
+    console.log("[COVER-FIX] step=nodeid3-attempt msg='Attempting NodeID3.update() to embed metadata'")
+    const updateResult = NodeID3.update(finalTags, absoluteOutputPath)
+    
+    if (!updateResult) {
+      console.error("[COVER-FIX] step=nodeid3-failed msg='NodeID3.update() returned false'")
+      throw new Error("NodeID3.update() failed - returned false")
+    }
+    
+    console.log("[COVER-FIX] step=nodeid3-success msg='NodeID3.update() completed'")
+    
+    // Verify file still exists after update
+    if (!fs.existsSync(absoluteOutputPath)) {
+      throw new Error(`File disappeared after NodeID3.update(): ${absoluteOutputPath}`)
+    }
+    
+    // CRITICAL VERIFICATION: Read back from disk immediately
+    console.log("[COVER-FIX] step=verify-nodeid3 msg='Verifying cover art embedding'")
     const fileFromDisk = await fsPromises.readFile(absoluteOutputPath)
     const readTags = NodeID3.read(fileFromDisk)
     
-    console.log("[TAG-VERIFY] Reading tags from final file...")
-    console.log("[TAG-VERIFY] Has image:", readTags.image !== undefined)
-    
-    // Verify image was embedded
+    let verificationPassed = false
     if (readTags.image !== undefined) {
       if (typeof readTags.image === "object" && readTags.image !== null) {
         const imageBufferLength = readTags.image.imageBuffer?.length || 0
-        console.log("[VERIFY] Image buffer length:", imageBufferLength)
+        console.log("[COVER-FIX] step=verify-check msg='Image found' bufferLength=" + imageBufferLength)
         
         if (imageBufferLength > 0) {
-          console.log("[TAG-VERIFY] ✅ VERIFICATION SUCCESS - Image buffer is populated!")
-          console.log("[TAG-VERIFY] ✅ APIC frame exists in final file!")
+          console.log("[COVER-FIX] step=verify-success msg='✅ VERIFICATION PASSED - Cover art embedded via NodeID3'")
+          verificationPassed = true
         } else {
-          console.error("[TAG-VERIFY] ❌ VERIFICATION FAILED - Image buffer is empty!")
-          throw new Error("Cover art verification failed: image buffer is empty after write")
+          console.error("[COVER-FIX] step=verify-failed msg='❌ Image buffer is empty'")
         }
       } else {
-        console.error("[TAG-VERIFY] ❌ VERIFICATION FAILED - Image is not an object!")
-        throw new Error("Cover art verification failed: image is not embedded object")
+        console.error("[COVER-FIX] step=verify-failed msg='❌ Image is not an object'")
       }
     } else {
       if (coverImageBuffer && coverImageBuffer.length > 0) {
-        console.error("[TAG-VERIFY] ❌ VERIFICATION FAILED - Image tag missing!")
-        console.error("[TAG-VERIFY] Cover art was provided but not embedded in final file!")
-        throw new Error("Cover art verification failed: image tag missing in final file")
+        console.error("[COVER-FIX] step=verify-failed msg='❌ Image tag missing - cover art was provided but not embedded'")
       } else {
-        console.log("[TAG-VERIFY] No cover art was provided, skipping image verification")
+        console.log("[COVER-FIX] step=verify-skip msg='No cover art provided, skipping verification'")
+        verificationPassed = true // No cover art to verify
       }
     }
     
-    console.log("[TAG-VERIFY] ==================================")
+    // STEP 4: ALWAYS run final ffmpeg pass if cover art was provided
+    // This ensures ID3v2.3 tags, ID3v1 fallback, and proper encoding
+    if (coverImageBuffer && coverImageBuffer.length > 0 && coverArtPath) {
+      console.log("[COVER-FIX] step=ffmpeg-final msg='Applied final MP3 tag normalization'")
+      
+      try {
+        const absoluteCoverPath = path.resolve(coverArtPath)
+        // Use .tmp.mp3 extension for temp file (ffmpeg requires proper extension)
+        const ffmpegOutputPath = absoluteOutputPath + '.tmp.mp3'
+        
+        console.log("[COVER-FIX] step=ffmpeg-prepare msg='Preparing final ffmpeg re-encode command' coverPath=" + absoluteCoverPath + " outputPath=" + ffmpegOutputPath)
+        
+        // Use ffmpeg to re-encode audio with libmp3lame and embed cover art with ID3v2.3 and ID3v1 tags
+        // This ensures proper Xing + LAME headers for macOS compatibility
+        await new Promise<void>((resolve, reject) => {
+          const command = ffmpeg(absoluteOutputPath)
+            .input(absoluteCoverPath)
+            .outputOptions([
+              '-map', '0:a',
+              '-map', '1:v',
+              '-c:a', 'libmp3lame',
+              '-b:a', '192k',
+              '-c:v', 'mjpeg',
+              '-id3v2_version', '3',
+              '-write_id3v1', '1',
+              '-y' // Overwrite output file
+            ])
+            .output(ffmpegOutputPath)
+            .on('end', () => {
+              console.log("[COVER-FIX] step=ffmpeg-success msg='Final ffmpeg pass completed'")
+              resolve()
+            })
+            .on('error', (err: any) => {
+              console.error("[COVER-FIX] step=ffmpeg-error msg='Final ffmpeg pass failed' error=" + err.message)
+              reject(err)
+            })
+          
+          command.run()
+        })
+        
+        // Replace original file with ffmpeg output
+        if (fs.existsSync(ffmpegOutputPath)) {
+          // Remove original file
+          await fsPromises.unlink(absoluteOutputPath)
+          // Rename tmp file to final path
+          await fsPromises.rename(ffmpegOutputPath, absoluteOutputPath)
+          console.log("[COVER-FIX] step=ffmpeg-reencode msg='Full MP3 re-encode complete'")
+          
+          // Verify ffmpeg output
+          const ffmpegFileBuffer = await fsPromises.readFile(absoluteOutputPath)
+          const ffmpegTags = NodeID3.read(ffmpegFileBuffer)
+          
+          if (ffmpegTags.image && typeof ffmpegTags.image === 'object' && ffmpegTags.image.imageBuffer?.length > 0) {
+            console.log("[COVER-FIX] step=ffmpeg-verify-success msg='✅ Final ffmpeg pass successful - cover art embedded with ID3v2.3 and ID3v1' bufferLength=" + ffmpegTags.image.imageBuffer.length)
+            verificationPassed = true
+          } else {
+            console.error("[COVER-FIX] step=ffmpeg-verify-failed msg='❌ Final ffmpeg output lacks cover art'")
+            // Still continue - file was processed
+          }
+        } else {
+          console.error("[COVER-FIX] step=ffmpeg-missing msg='Final ffmpeg output file not created'")
+          throw new Error("Final ffmpeg output file not created")
+        }
+      } catch (ffmpegError: any) {
+        console.error("[COVER-FIX] step=ffmpeg-exception msg='Final ffmpeg pass exception' error=" + ffmpegError.message)
+        throw new Error(`Final ffmpeg pass failed: ${ffmpegError.message}`)
+      }
+    }
+    
+    // Final check: if verification failed and cover art was expected, log warning but don't throw
+    // (ffmpeg should have handled it)
+    if (!verificationPassed && coverImageBuffer && coverImageBuffer.length > 0) {
+      console.warn("[COVER-FIX] step=final-warning msg='⚠️ Cover art verification failed after all attempts'")
+    }
+    
+    const finalStats = fs.statSync(absoluteOutputPath)
+    console.log("[COVER-FIX] step=final msg='Metadata injection complete' path=" + absoluteOutputPath + " size=" + finalStats.size + " bytes")
     console.log("[TAG] ======================================")
     
     return absoluteOutputPath

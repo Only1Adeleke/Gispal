@@ -4,11 +4,11 @@ import "./globals.css"
 import dynamic from "next/dynamic"
 
 // Dynamic import for client-only components
-const Toaster = dynamic(() => import("@/components/ui/toaster").then(mod => ({ default: mod.Toaster })), {
+const Toaster = dynamic(() => import("@/components/ui/toaster").then((mod) => ({ default: mod.Toaster })), {
   ssr: false,
 })
 
-const SonnerToaster = dynamic(() => import("@/components/ui/sonner").then(mod => ({ default: mod.Toaster })), {
+const SonnerToaster = dynamic(() => import("@/components/ui/sonner").then((mod) => ({ default: mod.Toaster })), {
   ssr: false,
 })
 
@@ -29,8 +29,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={`${inter.className} antialiased`}>
+    <html lang="en" className={`${inter.variable} light`} suppressHydrationWarning>
+      <body className={`${inter.className} antialiased`} suppressHydrationWarning>
         {children}
         <Toaster />
         <SonnerToaster />

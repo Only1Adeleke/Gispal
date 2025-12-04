@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
+// @ts-ignore - ffprobe-static doesn't have types
 import ffprobeStatic from "ffprobe-static"
 import fs from "fs/promises"
 import path from "path"

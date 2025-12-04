@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth"
 import { getAudioDuration, extractCoverArt } from "@/lib/ffmpeg"
 import { tempStorage } from "@/lib/storage"
 import { downloadAudiomackAudio } from "@/lib/audiomack"
-import ytdl from "ytdl-core"
+import { downloadYouTubeAudio, isValidYouTubeUrl } from "@/lib/youtube/downloader"
 import fs from "fs/promises"
 import path from "path"
 import { writeFile } from "fs/promises"
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "youtube": {
-        if (!ytdl.validateURL(url)) {
+        if (!isValidYouTubeUrl(url)) {
           return NextResponse.json(
             { error: "Invalid YouTube URL" },
             { status: 400 }
@@ -124,32 +124,17 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          const info = await ytdl.getInfo(url)
-          extractedTitle = info.videoDetails.title
-          extractedMetadata = {
-            artist: info.videoDetails.author?.name,
-            channel: info.videoDetails.author?.name,
-          }
-
-          const audioFormat = ytdl.chooseFormat(info.formats, {
-            quality: "highestaudio",
-            filter: "audioonly",
-          })
-
-          if (!audioFormat) {
-            return NextResponse.json(
-              { error: "No audio format available for this video" },
-              { status: 415 }
-            )
-          }
-
-          const chunks: Buffer[] = []
-          const stream = ytdl.downloadFromInfo(info, { format: audioFormat })
+          // Download audio using yt-dlp
+          const result = await downloadYouTubeAudio(url)
           
-          for await (const chunk of stream) {
-            chunks.push(Buffer.from(chunk))
+          audioBuffer = result.buffer
+          extractedTitle = result.title
+          extractedMetadata = {
+            artist: result.artist,
+            channel: result.artist,
+            thumbnail: result.thumbnail,
+            duration: result.duration,
           }
-          audioBuffer = Buffer.concat(chunks)
         } catch (error: any) {
           console.error("YouTube download error:", error)
           return NextResponse.json(

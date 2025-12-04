@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { initializePayment } from "@/lib/payments/paystack"
+import { db } from "@/lib/db"
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "planId is required" }, { status: 400 })
     }
 
-    const user = await require("@/lib/db").db.users.findById(session.user.id)
+    const user = await db.users.findById(session.user.id)
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }

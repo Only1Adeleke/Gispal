@@ -3,9 +3,10 @@ import { db } from "@/lib/db"
 import { checkLimits } from "@/lib/billing"
 import { getAudioDuration } from "@/lib/ffmpeg"
 import { downloadAudiomackAudio, parseAudiomackUrl } from "@/lib/audiomack"
-import ytdl from "ytdl-core"
+import { downloadYouTubeAudio, isValidYouTubeUrl } from "@/lib/youtube/downloader"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegStatic from "ffmpeg-static"
+// @ts-ignore - ffprobe-static doesn't have types
 import ffprobeStatic from "ffprobe-static"
 import fs from "fs/promises"
 import path from "path"
@@ -111,28 +112,10 @@ export async function POST(request: NextRequest) {
     let audioPath: string
 
     // Determine source and download
-    if (ytdl.validateURL(audioUrl)) {
+    if (isValidYouTubeUrl(audioUrl)) {
       // YouTube
-      const info = await ytdl.getInfo(audioUrl)
-      const audioFormat = ytdl.chooseFormat(info.formats, {
-        quality: "highestaudio",
-        filter: "audioonly",
-      })
-
-      if (!audioFormat) {
-        return NextResponse.json(
-          { error: "No audio format available for this video" },
-          { status: 415 }
-        )
-      }
-
-      const chunks: Buffer[] = []
-      const stream = ytdl.downloadFromInfo(info, { format: audioFormat })
-      
-      for await (const chunk of stream) {
-        chunks.push(Buffer.from(chunk))
-      }
-      audioBuffer = Buffer.concat(chunks)
+      const result = await downloadYouTubeAudio(audioUrl)
+      audioBuffer = result.buffer
     } else if (parseAudiomackUrl(audioUrl)) {
       // Audiomack
       const result = await downloadAudiomackAudio(audioUrl)

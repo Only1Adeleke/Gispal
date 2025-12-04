@@ -104,6 +104,16 @@ export interface Staging {
   createdAt: Date
 }
 
+export interface AudiomackToken {
+  id: string
+  userId: string
+  accessToken: string // Encrypted
+  accessTokenSecret: string // Encrypted
+  expiresAt?: number // UNIX timestamp
+  createdAt: Date
+  updatedAt: Date
+}
+
 // In-memory storage for development
 // Replace with actual database in production
 const users: Map<string, User> = new Map()
@@ -114,6 +124,7 @@ const audios: Map<string, Audio> = new Map()
 const apiKeys: Map<string, ApiKey> = new Map()
 const usage: Map<string, Usage> = new Map()
 const staging: Map<string, Staging> = new Map()
+const audiomackTokens: Map<string, AudiomackToken> = new Map() // userId -> token
 
 // Load persisted data on module initialization
 let persistenceInitialized = false
@@ -444,6 +455,45 @@ export const db = {
     },
     findByUserId: async (userId: string): Promise<Staging[]> => {
       return Array.from(staging.values()).filter(s => s.userId === userId)
+    },
+  },
+  audiomackTokens: {
+    findByUserId: async (userId: string): Promise<AudiomackToken | null> => {
+      return audiomackTokens.get(userId) || null
+    },
+    create: async (data: Omit<AudiomackToken, "id" | "createdAt" | "updatedAt">): Promise<AudiomackToken> => {
+      const token: AudiomackToken = {
+        ...data,
+        id: randomUUID(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      audiomackTokens.set(data.userId, token)
+      return token
+    },
+    update: async (userId: string, data: Partial<Omit<AudiomackToken, "id" | "userId" | "createdAt">>): Promise<AudiomackToken> => {
+      const existing = audiomackTokens.get(userId)
+      if (!existing) {
+        throw new Error("Audiomack token not found")
+      }
+      const updated: AudiomackToken = {
+        ...existing,
+        ...data,
+        updatedAt: new Date(),
+      }
+      audiomackTokens.set(userId, updated)
+      return updated
+    },
+    upsert: async (data: Omit<AudiomackToken, "id" | "createdAt" | "updatedAt">): Promise<AudiomackToken> => {
+      const existing = audiomackTokens.get(data.userId)
+      if (existing) {
+        return db.audiomackTokens.update(data.userId, data)
+      } else {
+        return db.audiomackTokens.create(data)
+      }
+    },
+    delete: async (userId: string): Promise<void> => {
+      audiomackTokens.delete(userId)
     },
   },
 }

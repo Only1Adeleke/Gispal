@@ -4,6 +4,8 @@ import { db } from "@/lib/db"
 import { storage } from "@/lib/storage"
 import { getMaxJingles, isProPlan } from "@/lib/plan-restrictions"
 import { getAudioDuration } from "@/lib/ffmpeg"
+import fs from "fs/promises"
+import path from "path"
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,8 +65,6 @@ export async function POST(request: NextRequest) {
     const fileUrl = await storage.upload(buffer, fileKey, file.type)
 
     // Save to temp to get duration
-    const fs = require("fs/promises")
-    const path = require("path")
     const tempDir = "/tmp/gispal"
     // Ensure temp directory exists
     await fs.mkdir(tempDir, { recursive: true }).catch(() => {})

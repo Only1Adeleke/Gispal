@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { canUseExtractedCoverArt } from "@/lib/plan-restrictions"
-import ytdl from "ytdl-core"
+import { downloadYouTubeAudio, isValidYouTubeUrl, getYouTubeInfo } from "@/lib/youtube/downloader"
 import { extractCoverArt } from "@/lib/ffmpeg"
 import { tempStorage } from "@/lib/storage"
 import fs from "fs/promises"
@@ -51,35 +51,21 @@ export async function POST(request: NextRequest) {
     let extractedMetadata: any = {}
 
     // Detect platform and download
-    if (ytdl.validateURL(url)) {
+    if (isValidYouTubeUrl(url)) {
       // YouTube
-      const info = await ytdl.getInfo(url)
-      const audioFormat = ytdl.chooseFormat(info.formats, {
-        quality: "highestaudio",
-        filter: "audioonly",
-      })
-
-      const chunks: Buffer[] = []
-      const stream = ytdl.downloadFromInfo(info, { format: audioFormat })
-      
-      for await (const chunk of stream) {
-        chunks.push(Buffer.from(chunk))
-      }
-      audioBuffer = Buffer.concat(chunks)
+      const result = await downloadYouTubeAudio(url)
+      audioBuffer = result.buffer
 
       // Extract metadata
       extractedMetadata = {
-        title: info.videoDetails.title,
-        artist: info.videoDetails.author?.name,
-        album: info.videoDetails.title,
+        title: result.title,
+        artist: result.artist,
+        album: result.title,
       }
 
       // Extract cover art from video thumbnail (only for Pro users)
-      if (canUseExtractedCoverArt(user.plan)) {
-        const thumbnailUrl = info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1]?.url
-        if (thumbnailUrl) {
-          coverArtUrl = thumbnailUrl
-        }
+      if (canUseExtractedCoverArt(user.plan) && result.thumbnail) {
+        coverArtUrl = result.thumbnail
       }
     } else if (url.includes("audiomack.com")) {
       // Audiomack - would need specific implementation

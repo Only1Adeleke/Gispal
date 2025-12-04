@@ -222,14 +222,14 @@ export function ProcessingDialog({
         setSelectedCoverArtPath(result.path)
         
         // Set preview from uploaded file
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          setCoverArtPreview(event.target?.result as string)
-        }
-        reader.readAsDataURL(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setCoverArtPreview(event.target?.result as string)
+      }
+      reader.readAsDataURL(file)
         
-        setCoverArtSource("custom")
-        form.setValue("coverArtSource", "custom")
+      setCoverArtSource("custom")
+      form.setValue("coverArtSource", "custom")
         toast.success("Cover art uploaded successfully")
       } else {
         throw new Error("Invalid response from upload endpoint")

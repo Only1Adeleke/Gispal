@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { getAudioDuration, mixAudio, JingleConfig } from "@/lib/ffmpeg"
 import { checkLimits, checkExternalIngestDurationLimit } from "@/lib/billing"
 import { downloadAudiomackAudio, parseAudiomackUrl } from "@/lib/audiomack"
-import ytdl from "ytdl-core"
+import { downloadYouTubeAudio, isValidYouTubeUrl } from "@/lib/youtube/downloader"
 import fs from "fs/promises"
 import path from "path"
 import { writeFile } from "fs/promises"
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
 
       case "youtube": {
         // Validate YouTube URL
-        if (!ytdl.validateURL(url)) {
+        if (!isValidYouTubeUrl(url)) {
           return NextResponse.json(
             { error: "Invalid YouTube URL" },
             { status: 400 }
@@ -171,37 +171,17 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          // Get video info
-          const info = await ytdl.getInfo(url)
+          // Download audio using yt-dlp
+          const result = await downloadYouTubeAudio(url)
           
-          // Extract metadata
-          extractedTitle = info.videoDetails.title
+          audioBuffer = result.buffer
+          extractedTitle = result.title
           extractedMetadata = {
-            artist: info.videoDetails.author?.name,
-            channel: info.videoDetails.author?.name,
+            artist: result.artist,
+            channel: result.artist,
+            thumbnail: result.thumbnail,
+            duration: result.duration,
           }
-
-          // Choose highest quality audio format
-          const audioFormat = ytdl.chooseFormat(info.formats, {
-            quality: "highestaudio",
-            filter: "audioonly",
-          })
-
-          if (!audioFormat) {
-            return NextResponse.json(
-              { error: "No audio format available for this video" },
-              { status: 415 }
-            )
-          }
-
-          // Download audio stream
-          const chunks: Buffer[] = []
-          const stream = ytdl.downloadFromInfo(info, { format: audioFormat })
-          
-          for await (const chunk of stream) {
-            chunks.push(Buffer.from(chunk))
-          }
-          audioBuffer = Buffer.concat(chunks)
         } catch (error: any) {
           console.error("YouTube download error:", error)
           return NextResponse.json(
@@ -306,7 +286,7 @@ export async function POST(request: NextRequest) {
         
         for (const jingle of userJingles) {
           // Download jingle file to temp location
-          let jinglePath: string
+          let jinglePath: string | undefined
           
           // Check if jingle URL is a local file or needs to be fetched
           if (jingle.fileUrl.startsWith("/")) {
@@ -358,11 +338,11 @@ export async function POST(request: NextRequest) {
           }
 
           if (jinglePath) {
-            jingleConfigs.push({
-              path: jinglePath,
-              position: "start", // Default to start position
-              volume: 1.0, // Default volume
-            })
+          jingleConfigs.push({
+            path: jinglePath,
+            position: "start", // Default to start position
+            volume: 1.0, // Default volume
+          })
           }
         }
 
