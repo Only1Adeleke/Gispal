@@ -22,7 +22,7 @@ const createApiKeySchema = z.object({
   scopes: z.array(z.string()).optional().default([]),
   expiresAt: z.string().datetime().optional(),
   rateLimitPerMinute: z.number().int().min(1).max(10000).optional().default(60),
-  rateLimitPerDay: z.number().int().min(1).max(1000000).optional().default(5000),
+  rateLimitPerDay: z.number().int().min(1).max(1000000).optional().default(1000),
 })
 
 /**
@@ -45,12 +45,14 @@ export async function GET(request: NextRequest) {
       .select({
         id: apiKeys.id,
         name: apiKeys.name,
+        prefix: apiKeys.prefix,
         scopes: apiKeys.scopes,
         createdAt: apiKeys.createdAt,
         updatedAt: apiKeys.updatedAt,
         lastUsedAt: apiKeys.lastUsedAt,
         expiresAt: apiKeys.expiresAt,
         revokedAt: apiKeys.revokedAt,
+        usageCount: apiKeys.usageCount,
         rateLimitPerMinute: apiKeys.rateLimitPerMinute,
         rateLimitPerDay: apiKeys.rateLimitPerDay,
         userId: apiKeys.userId,
@@ -62,12 +64,14 @@ export async function GET(request: NextRequest) {
     const formattedKeys = keys.map((key) => ({
       id: key.id,
       name: key.name,
+      prefix: key.prefix,
       scopes: key.scopes as string[],
       createdAt: key.createdAt,
       updatedAt: key.updatedAt,
       lastUsedAt: key.lastUsedAt,
       expiresAt: key.expiresAt,
       revokedAt: key.revokedAt,
+      usageCount: key.usageCount || 0,
       rateLimitPerMinute: key.rateLimitPerMinute,
       rateLimitPerDay: key.rateLimitPerDay,
       status: key.revokedAt ? "revoked" : key.expiresAt && new Date(key.expiresAt) < new Date() ? "expired" : "active",
@@ -99,8 +103,8 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validated = createApiKeySchema.parse(body)
 
-    // Generate new API key
-    const rawKey = generateApiKey()
+    // Generate new API key with prefix
+    const { key: rawKey, prefix } = generateApiKey()
     const keyHash = hashApiKeySync(rawKey)
 
     // Validate scopes
@@ -119,11 +123,13 @@ export async function POST(request: NextRequest) {
       .values({
         userId,
         keyHash,
+        prefix,
         name: validated.name,
         scopes: scopes,
         expiresAt: validated.expiresAt ? new Date(validated.expiresAt) : null,
         rateLimitPerMinute: validated.rateLimitPerMinute,
         rateLimitPerDay: validated.rateLimitPerDay,
+        usageCount: 0,
       })
       .returning()
 

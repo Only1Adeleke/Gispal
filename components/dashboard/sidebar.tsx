@@ -18,9 +18,12 @@ import {
   ExternalLink,
   Key,
   BarChart3,
+  Shield,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
+import { useQuery } from "@tanstack/react-query"
 
 const mainNavItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -39,14 +42,31 @@ const audioNavItems = [
 ]
 
 const accountNavItems = [
+  { href: "/dashboard/api-keys", label: "API Keys", icon: Key },
   { href: "/dashboard/billing", label: "Billing & Usage", icon: CreditCard },
   { href: "/dashboard/history", label: "History", icon: History },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/account", label: "Account", icon: User },
 ]
 
+const adminNavItems = [
+  { href: "/admin/api-keys", label: "API Keys (Admin)", icon: Shield },
+]
+
 export function Sidebar() {
   const pathname = usePathname()
+  
+  // Check admin status using React Query
+  const { data: isAdmin } = useQuery({
+    queryKey: ["isAdmin"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/check-admin")
+      if (!res.ok) return false
+      const data = await res.json()
+      return data.isAdmin
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
 
   const handleLogout = async () => {
     const { signOut } = await import("@/lib/auth-client")
@@ -108,9 +128,20 @@ export function Sidebar() {
         <Separator className="bg-sidebar-border" />
         
         {renderNavGroup(accountNavItems, "Account")}
+        
+        {isAdmin && (
+          <>
+            <Separator className="bg-sidebar-border" />
+            {renderNavGroup(adminNavItems, "Admin")}
+          </>
+        )}
       </nav>
       
-      <div className="p-4 border-t border-sidebar-border">
+      <div className="p-4 border-t border-sidebar-border space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Theme</span>
+          <ThemeToggle />
+        </div>
         <Button
           variant="ghost"
           className="w-full justify-start text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"

@@ -1,16 +1,9 @@
-/** @type {import('next').NextConfig} */
-// Diagnostics: Show yt-dlp binary location
-import path from "path"
-import { fileURLToPath } from "url"
-const __filename = fileURLToPath(import.meta.url)
-const binPath = path.resolve(process.cwd(), "bin", "yt-dlp")
-console.log("YT-DLP BINARY LOCATION:", binPath)
-
+/** @type {import("next").NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   experimental: {
-    serverActions: {
-      bodySizeLimit: '50mb',
-    },
+    optimizeCss: false,
+    serverComponentsExternalPackages: ["better-sqlite3", "drizzle-orm", "ffmpeg-static", "ffprobe-static"],
   },
   images: {
     remotePatterns: [
@@ -33,15 +26,11 @@ const nextConfig = {
       },
     ]
   },
-  // Ensure server-only packages are not bundled for client
-  serverComponentsExternalPackages: [
-    'better-sqlite3',
-    'drizzle-orm',
-    'ffmpeg-static',
-    'ffprobe-static',
-  ],
-  // Ensure ffmpeg/ffprobe static binaries are not bundled
+  // Force Webpack (disable Turbopack)
   webpack: (config, { isServer }) => {
+    // Enable layers for proper module resolution
+    config.experiments = { ...config.experiments, layers: true };
+    
     if (isServer) {
       // Externalize server-only packages to prevent bundling issues
       config.externals = config.externals || []

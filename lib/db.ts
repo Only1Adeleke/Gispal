@@ -212,6 +212,17 @@ export const db = {
       await initializePersistence()
       return Array.from(jingles.values()).filter(j => j.userId === userId)
     },
+    // Plan-based default resolution: newest jingle (most recently uploaded)
+    // For FREE plan: only 1 jingle allowed, so it's always the default
+    // For PAID plans: newest jingle is the default
+    findDefaultByUserId: async (userId: string): Promise<Jingle | null> => {
+      await initializePersistence()
+      const userJingles = Array.from(jingles.values())
+        .filter(j => j.userId === userId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) // Newest first
+      
+      return userJingles[0] || null
+    },
     findById: async (id: string): Promise<Jingle | null> => {
       await initializePersistence()
       return jingles.get(id) || null

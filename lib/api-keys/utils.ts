@@ -8,13 +8,25 @@ import crypto from "crypto"
  * Generate a secure, random API key
  * Format: gispal_<random-base64-url-safe>
  * Length: 36-48 characters
+ * Returns both the full key and the prefix for display
  */
-export function generateApiKey(): string {
+export function generateApiKey(): { key: string; prefix: string } {
   // Generate 32 random bytes (256 bits) and encode as base64url
   const randomBytes = crypto.randomBytes(32)
   const base64Key = randomBytes.toString("base64url")
   // Prefix with "gispal_" for identification
-  return `gispal_${base64Key}`
+  const fullKey = `gispal_${base64Key}`
+  // Extract prefix (first 8-10 characters for display)
+  const prefix = fullKey.substring(0, Math.min(10, fullKey.length))
+  return { key: fullKey, prefix }
+}
+
+/**
+ * Extract prefix from an API key
+ * Returns first 6-10 characters for display purposes
+ */
+export function extractPrefix(key: string): string {
+  return key.substring(0, Math.min(10, key.length))
 }
 
 /**

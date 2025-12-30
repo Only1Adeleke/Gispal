@@ -84,7 +84,7 @@ export default function AccountPage() {
               <Input value={userData?.name || ""} disabled />
             </div>
             <Button variant="outline" disabled>
-              Update Profile (Coming Soon)
+              Update Profile
             </Button>
           </CardContent>
         </Card>
@@ -167,7 +167,6 @@ export default function AccountPage() {
           <CardContent>
             <div className="text-center py-8 text-muted-foreground">
               <p>Billing history will appear here</p>
-              <p className="text-sm mt-2">Coming soon</p>
             </div>
           </CardContent>
         </Card>

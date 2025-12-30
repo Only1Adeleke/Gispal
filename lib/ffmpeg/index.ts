@@ -282,74 +282,182 @@ export async function mixAudio(options: MixOptions): Promise<string> {
       // Initialize FFmpeg paths
       initializeFfmpegPaths()
       
+      // HARD VALIDATION: Verify main audio file exists and is readable
+      if (!fs.existsSync(audioPath)) {
+        throw new Error(`Main audio file does not exist: ${audioPath}`)
+      }
+      const mainAudioStats = fs.statSync(audioPath)
+      if (mainAudioStats.size === 0) {
+        throw new Error(`Main audio file is empty: ${audioPath}`)
+      }
+      console.log("[FFMPEG] ✅ Main audio validated:", {
+        path: audioPath,
+        size: mainAudioStats.size,
+        exists: true
+      })
+      
       // Get audio duration
       const audioDuration = await getAudioDuration(audioPath)
+      if (audioDuration <= 0) {
+        throw new Error(`Invalid audio duration: ${audioDuration} seconds`)
+      }
+      console.log("[FFMPEG] ✅ Main audio duration:", audioDuration, "seconds")
+      
+      // HARD VALIDATION: Verify all jingle files exist and are readable
+      const validatedJingles: Array<{ config: JingleConfig; duration: number; path: string }> = []
+      for (const jingle of jingles) {
+        if (!fs.existsSync(jingle.path)) {
+          throw new Error(`Jingle file does not exist: ${jingle.path}`)
+        }
+        const jingleStats = fs.statSync(jingle.path)
+        if (jingleStats.size === 0) {
+          throw new Error(`Jingle file is empty: ${jingle.path}`)
+        }
+        const jingleDuration = await getAudioDuration(jingle.path)
+        if (jingleDuration <= 0) {
+          throw new Error(`Invalid jingle duration: ${jingleDuration} seconds for ${jingle.path}`)
+        }
+        validatedJingles.push({
+          config: jingle,
+          duration: jingleDuration,
+          path: jingle.path
+        })
+        console.log("[FFMPEG] ✅ Jingle validated:", {
+          path: jingle.path,
+          position: jingle.position,
+          duration: jingleDuration,
+          size: jingleStats.size,
+          volume: jingle.volume || 1.0
+        })
+      }
+      
+      // Separate jingles by position
+      const introJingles = validatedJingles.filter(j => j.config.position === "start")
+      const outroJingles = validatedJingles.filter(j => j.config.position === "end")
+      const midrollJingles = validatedJingles.filter(j => j.config.position === "middle")
+      
+      console.log("[FFMPEG] ========== JINGLE PLACEMENT SUMMARY ==========")
+      console.log("[FFMPEG] Intro jingles:", introJingles.length)
+      console.log("[FFMPEG] Outro jingles:", outroJingles.length)
+      console.log("[FFMPEG] Midroll jingles:", midrollJingles.length)
+      console.log("[FFMPEG] ============================================")
       
       // Create FFmpeg command
       let command = ffmpeg(audioPath)
       
-      const filters: string[] = []
-      let currentAudioStream = "[0:a]"
+      // Build concatenation for intro + main + outro
+      // FFmpeg concat filter syntax: [0:a][1:a]concat=n=2:v=0:a=1[out]
+      // Input order: main audio (0), intro jingles (1+), midroll jingles, outro jingles
       let inputIndex = 1
-
-      // Process each jingle
-      if (jingles.length > 0) {
-        for (const jingle of jingles) {
-          const jingleDuration = await getAudioDuration(jingle.path)
-          let jingleStartTime = 0
-
-          // Calculate jingle start time based on position
-          if (jingle.position === "start") {
-            jingleStartTime = 0
-          } else if (jingle.position === "middle") {
-            jingleStartTime = (audioDuration - jingleDuration) / 2
-          } else if (jingle.position === "end") {
-            jingleStartTime = Math.max(0, audioDuration - jingleDuration)
-          }
-
-          // Add jingle as input
+      const tempFiles: string[] = []
+      
+      // Add intro jingles as inputs (concatenate before main audio)
+      for (const jingle of introJingles) {
+        command = command.input(jingle.path)
+        inputIndex++
+      }
+      
+      // Add midroll jingles as inputs (will be mixed/overlaid)
+      const midrollFilters: string[] = []
+      const midrollStartIdx = inputIndex
+      if (midrollJingles.length > 0) {
+        for (const jingle of midrollJingles) {
           command = command.input(jingle.path)
-          
-          // Apply volume if specified (volume filter: 0.0 to 1.0)
-          const volume = jingle.volume !== undefined ? jingle.volume : 1.0
-          
-          // Delay the jingle to start at the correct position
-          const delayMs = Math.round(jingleStartTime * 1000)
+          const midrollTime = audioDuration / 2
+          const delayMs = Math.round(midrollTime * 1000)
           const jingleStream = `[${inputIndex}:a]`
-          const jingleDelayed = `[jingle_${inputIndex}_delayed]`
+          const jingleDelayed = `[midroll_${inputIndex}_delayed]`
+          const volume = jingle.config.volume !== undefined ? jingle.config.volume : 1.0
           
           if (volume !== 1.0) {
-            // Apply volume first, then delay
-            const jingleVolume = `[jingle_${inputIndex}_volume]`
-            filters.push(
+            const jingleVolume = `[midroll_${inputIndex}_volume]`
+            midrollFilters.push(
               `${jingleStream}volume=${volume}${jingleVolume}`,
               `${jingleVolume}adelay=${delayMs}|${delayMs}${jingleDelayed}`
             )
           } else {
-            // Just delay
-            filters.push(
+            midrollFilters.push(
               `${jingleStream}adelay=${delayMs}|${delayMs}${jingleDelayed}`
             )
           }
-          
           inputIndex++
         }
-
-        // Mix all jingles with the main audio
-        // Build amix inputs: main audio + all delayed jingles
-        const mixInputs = [currentAudioStream, ...jingles.map((_, idx) => `[jingle_${idx + 1}_delayed]`)]
-        const mixOutput = "[audio_mixed]"
+      }
+      
+      // Add outro jingles as inputs (concatenate after main audio)
+      const outroStartIdx = inputIndex
+      for (const jingle of outroJingles) {
+        command = command.input(jingle.path)
+        inputIndex++
+      }
+      
+      // Build filter complex
+      const filters: string[] = []
+      let finalStream = "[0:a]"
+      
+      // Handle intro + outro concatenation
+      if (introJingles.length > 0 || outroJingles.length > 0) {
+        // Build concat input string: [intro1][intro2][main][outro1][outro2]
+        const concatInputs: string[] = []
+        
+        // Add intro jingles (inputs 1, 2, ...)
+        for (let i = 0; i < introJingles.length; i++) {
+          concatInputs.push(`[${1 + i}:a]`)
+        }
+        
+        // Add main audio (input 0)
+        concatInputs.push("[0:a]")
+        
+        // Add outro jingles (inputs after midroll)
+        for (let i = 0; i < outroJingles.length; i++) {
+          concatInputs.push(`[${outroStartIdx + i}:a]`)
+        }
+        
+        // Create concat filter: [0:a][1:a]concat=n=2:v=0:a=1[out]
+        const concatInputString = concatInputs.join("")
+        const concatOutput = "[concat_output]"
+        const concatFilter = `${concatInputString}concat=n=${concatInputs.length}:v=0:a=1${concatOutput}`
+        
+        filters.push(concatFilter)
+        finalStream = concatOutput
+        
+        console.log("[FFMPEG] ✅ Using concat filter with", concatInputs.length, "parts")
+        console.log("[FFMPEG] Concat sequence:", 
+          introJingles.length > 0 ? `${introJingles.length} intro(s)` : "",
+          "main audio",
+          outroJingles.length > 0 ? `${outroJingles.length} outro(s)` : ""
+        )
+      }
+      
+      // Add midroll mixing if needed (overlay on top of concat/main audio)
+      if (midrollJingles.length > 0) {
+        // Apply midroll filters
+        filters.push(...midrollFilters)
+        
+        // Mix midroll jingles with the main/concat audio
+        const midrollInputs = midrollJingles.map((_, idx) => `[midroll_${midrollStartIdx + idx}_delayed]`)
+        const mixInputs = [finalStream, ...midrollInputs]
+        const mixOutput = "[final_mixed]"
         
         filters.push(
           `${mixInputs.join("")}amix=inputs=${mixInputs.length}:duration=longest:dropout_transition=0${mixOutput}`
         )
-        
-        currentAudioStream = mixOutput
+        finalStream = mixOutput
+        console.log("[FFMPEG] ✅ Adding midroll mixing with", midrollInputs.length, "jingle(s)")
+      }
+      
+      // Apply filters if any
+      if (filters.length > 0) {
         command = command.complexFilter(filters)
-        command = command.outputOptions(["-map", currentAudioStream])
+        // CRITICAL: Map the filter output stream
+        command = command.outputOptions(["-map", finalStream])
+        console.log("[FFMPEG] ✅ Applied", filters.length, "filter(s)")
+        console.log("[FFMPEG] Filter complex:", filters.join("; "))
+        console.log("[FFMPEG] ✅ Mapping filter output:", finalStream)
       } else {
         // No jingles, just use original audio
         command = command.outputOptions(["-map", "0:a"])
+        console.log("[FFMPEG] No jingles, using original audio")
       }
 
       // CRITICAL: Do NOT add cover art or metadata during mixing
@@ -423,24 +531,41 @@ export async function mixAudio(options: MixOptions): Promise<string> {
       // Add event handlers
       command
         .on("start", (commandLine) => {
-          console.log("[FFMPEG] ========== FFMPEG COMMAND START ==========")
-          console.log("[FFMPEG] Full command:", commandLine)
-          console.log("[FFMPEG] Expected output path:", absoluteOutputPath)
-          console.log("[FFMPEG] Expected output filename:", outputFilename)
+          console.log("[FFMPEG] ========== EXACT FFMPEG COMMAND ==========")
+          console.log("[FFMPEG] COMMAND:", commandLine)
+          console.log("[FFMPEG] OUTPUT PATH:", absoluteOutputPath)
+          console.log("[FFMPEG] MAIN AUDIO:", audioPath)
+          console.log("[FFMPEG] JINGLES:", jingles.length)
           
-          // Extract the actual output file from the command
-          const outputMatch = commandLine.match(/(?:-y\s+)?([^\s]+\.mp3)(?:\s|$)/)
-          if (outputMatch) {
-            console.log("[FFMPEG] Detected output in command:", outputMatch[1])
-            if (outputMatch[1] !== absoluteOutputPath && outputMatch[1] !== outputFilename && !outputMatch[1].includes(outputFilename)) {
-              console.error("[FFMPEG] ERROR: Output mismatch! Expected:", absoluteOutputPath, "Got:", outputMatch[1])
+          const allInputs = [audioPath, ...jingles.map(j => j.path)]
+          console.log("[FFMPEG] FINAL FFMPEG INPUTS:", allInputs.length)
+          console.log("[FFMPEG]   Input 0 (main):", audioPath)
+          jingles.forEach((j, i) => {
+            console.log(`[FFMPEG]   Input ${i + 1} (jingle): ${j.path} (position: ${j.position})`)
+          })
+          
+          if (filters.length > 0) {
+            console.log("[FFMPEG] FILTER OUTPUT STREAM:", finalStream)
+            console.log("[FFMPEG] VERIFYING -map flag includes:", finalStream)
+            if (!commandLine.includes(`-map ${finalStream}`) && !commandLine.includes(`-map "${finalStream}"`)) {
+              console.error("[FFMPEG] ❌ ERROR: -map flag missing for filter output!")
+              console.error("[FFMPEG] Command should include: -map", finalStream)
+            } else {
+              console.log("[FFMPEG] ✅ -map flag correctly includes filter output")
             }
-          } else {
-            console.warn("[FFMPEG] WARNING: Could not detect output file in command!")
           }
-          console.log("[FFMPEG] ==========================================")
+          console.log("[FFMPEG] =========================================")
         })
-        .on("end", () => {
+        .on("stderr", (stderrLine) => {
+          // Log FFmpeg stderr for debugging
+          if (stderrLine.includes("error") || stderrLine.includes("Error") || stderrLine.includes("ERROR")) {
+            console.error("[FFMPEG] STDERR:", stderrLine)
+          } else if (stderrLine.includes("Duration") || stderrLine.includes("time=")) {
+            // Log duration/time info
+            console.log("[FFMPEG] STDERR:", stderrLine)
+          }
+        })
+        .on("end", async () => {
           // Validate output file exists
           if (!fs.existsSync(absoluteOutputPath)) {
             reject(new Error(`Output file missing after FFmpeg processing: ${absoluteOutputPath}`))
@@ -454,8 +579,73 @@ export async function mixAudio(options: MixOptions): Promise<string> {
             return
           }
           
-          console.log("[FFMPEG] Mix completed successfully:", absoluteOutputPath)
-          console.log("[FFMPEG] Output file size:", stats.size, "bytes")
+          console.log("[FFMPEG] ========== OUTPUT FILE VERIFICATION ==========")
+          console.log("[FFMPEG] FILE PATH:", absoluteOutputPath)
+          console.log("[FFMPEG] FILE SIZE:", stats.size, "bytes")
+          
+          // Get output duration
+          let outputDuration: number
+          try {
+            outputDuration = await getAudioDuration(absoluteOutputPath)
+            console.log("[FFMPEG] FINAL OUTPUT DURATION:", outputDuration, "seconds")
+            console.log("[FFMPEG] INPUT DURATION:", audioDuration, "seconds")
+          } catch (durationError: any) {
+            reject(new Error(`Failed to get output duration: ${durationError.message}`))
+            return
+          }
+          
+          // HARD FAIL: If jingle is resolved, output duration MUST be different
+          if (jingles.length > 0) {
+            const hasIntro = jingles.some(j => j.position === "start")
+            const hasOutro = jingles.some(j => j.position === "end")
+            
+            if (hasIntro || hasOutro) {
+              const expectedDurationIncrease = jingles
+                .filter(j => j.position === "start" || j.position === "end")
+                .reduce((sum, j) => {
+                  const jingleDuration = validatedJingles.find(vj => vj.config === j)?.duration || 0
+                  return sum + jingleDuration
+                }, 0)
+              
+              const expectedDuration = audioDuration + expectedDurationIncrease
+              const durationDiff = Math.abs(outputDuration - expectedDuration)
+              
+              console.log("[FFMPEG] EXPECTED DURATION:", expectedDuration, "seconds")
+              console.log("[FFMPEG] ACTUAL DURATION:", outputDuration, "seconds")
+              console.log("[FFMPEG] DURATION DIFF:", durationDiff, "seconds")
+              
+              // HARD FAIL: Output duration must be longer than input for intro/outro
+              if (outputDuration <= audioDuration) {
+                const errorMsg = `JINGLE RESOLVED BUT FINAL OUTPUT DOES NOT CONTAIN IT. Input: ${audioDuration}s, Output: ${outputDuration}s. Expected: ${expectedDuration}s`
+                console.error("[FFMPEG] ❌", errorMsg)
+                reject(new Error(errorMsg))
+                return
+              }
+              
+              // Allow 1 second tolerance for encoding
+              if (durationDiff > 1.0) {
+                const errorMsg = `JINGLE RESOLVED BUT DURATION MISMATCH. Expected: ${expectedDuration}s, Got: ${outputDuration}s, Diff: ${durationDiff}s`
+                console.error("[FFMPEG] ❌", errorMsg)
+                reject(new Error(errorMsg))
+                return
+              }
+            }
+          }
+          
+          console.log("[FFMPEG] ✅ OUTPUT VERIFICATION PASSED")
+          console.log("[FFMPEG] ===========================================")
+          
+          // Clean up temp files
+          for (const tempFile of tempFiles) {
+            try {
+              if (fs.existsSync(tempFile)) {
+                await fsPromises.unlink(tempFile)
+              }
+            } catch (cleanupError) {
+              // Ignore cleanup errors
+            }
+          }
+          
           resolve(absoluteOutputPath)
         })
         .on("error", (err) => {

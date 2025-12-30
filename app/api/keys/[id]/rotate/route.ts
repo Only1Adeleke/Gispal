@@ -46,8 +46,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Not found", message: "API key not found" }, { status: 404 })
     }
 
-    // Generate new key
-    const rawKey = generateApiKey()
+    // Generate new key with prefix
+    const { key: rawKey, prefix } = generateApiKey()
     const keyHash = hashApiKeySync(rawKey)
 
     // Create new key with same settings
@@ -56,11 +56,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .values({
         userId: oldKey.userId,
         keyHash,
+        prefix,
         name: `${oldKey.name} (rotated)`,
         scopes: oldKey.scopes as string[],
         expiresAt: oldKey.expiresAt,
         rateLimitPerMinute: oldKey.rateLimitPerMinute,
         rateLimitPerDay: oldKey.rateLimitPerDay,
+        usageCount: 0,
       })
       .returning()
 

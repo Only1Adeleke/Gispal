@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useApiKeys, type CreateApiKeyData } from "@/hooks/useApiKeys"
+import { useRouter } from "next/navigation"
 import { ALL_SCOPES } from "@/lib/api-keys/utils"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -24,13 +25,14 @@ interface CreateApiKeyDialogProps {
 
 export function CreateApiKeyDialog({ onKeyCreated }: CreateApiKeyDialogProps) {
   const { createKey } = useApiKeys()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState<CreateApiKeyData>({
     name: "",
     scopes: [],
     rateLimitPerMinute: 60,
-    rateLimitPerDay: 5000,
+    rateLimitPerDay: 1000, // Updated default to match schema
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,18 +41,21 @@ export function CreateApiKeyDialog({ onKeyCreated }: CreateApiKeyDialogProps) {
 
     try {
       const result = await createKey(formData)
-      if (result) {
+      if (result && result.key) {
         setOpen(false)
         setFormData({
           name: "",
           scopes: [],
           rateLimitPerMinute: 60,
-          rateLimitPerDay: 5000,
+          rateLimitPerDay: 1000, // Updated default to match schema
         })
+        router.refresh() // Refresh server component data
         if (onKeyCreated) {
           onKeyCreated(result.key)
         }
       }
+    } catch (error) {
+      // Error handled by mutation
     } finally {
       setLoading(false)
     }
@@ -136,7 +141,7 @@ export function CreateApiKeyDialog({ onKeyCreated }: CreateApiKeyDialogProps) {
                 max="1000000"
                 value={formData.rateLimitPerDay}
                 onChange={(e) =>
-                  setFormData({ ...formData, rateLimitPerDay: parseInt(e.target.value) || 5000 })
+                  setFormData({ ...formData, rateLimitPerDay: parseInt(e.target.value) || 1000 })
                 }
               />
             </div>

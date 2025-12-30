@@ -33,6 +33,7 @@ export const users = sqliteTable("users", {
   bandwidthUsed: integer("bandwidth_used").notNull().default(0), // in bytes
   bandwidthLimit: integer("bandwidth_limit").notNull().default(100 * 1024 * 1024), // 100MB default
   role: text("role", { enum: ["admin", "user"] }).notNull().default("user"),
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false), // Explicit admin flag
   banned: integer("banned", { mode: "boolean" }).notNull().default(false),
 })
 
@@ -87,13 +88,14 @@ export const audios = sqliteTable("audios", {
   coverArt: text("cover_art"), // Path to cover art: /storage/cover-art/{userId}/{uuid}.jpg
 })
 
-// API keys table
+// API keys table - Enhanced with prefix and usage_count
 export const apiKeys = sqliteTable(
   "api_keys",
   {
     id: text("id").primaryKey().$defaultFn(() => randomUUID()),
     userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     keyHash: text("key_hash").notNull(), // SHA-256 hash of the API key
+    prefix: text("prefix").notNull(), // First 6-10 chars for display (e.g., "gispal_")
     name: text("name").notNull(), // User-friendly name for the key
     scopes: text("scopes", { mode: "json" })
       .$type<string[]>()
@@ -105,13 +107,15 @@ export const apiKeys = sqliteTable(
     lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
     expiresAt: integer("expires_at", { mode: "timestamp" }), // Optional expiration
     revokedAt: integer("revoked_at", { mode: "timestamp" }), // Revocation timestamp
+    usageCount: integer("usage_count").notNull().default(0), // Total usage counter
     rateLimitPerMinute: integer("rate_limit_per_minute").notNull().default(60),
-    rateLimitPerDay: integer("rate_limit_per_day").notNull().default(5000),
+    rateLimitPerDay: integer("rate_limit_per_day").notNull().default(1000), // Changed default to 1000
   },
   (table) => [
     index("api_keys_key_hash_idx").on(table.keyHash), // Index for fast lookup
     index("api_keys_user_id_idx").on(table.userId),
     index("api_keys_deleted_at_idx").on(table.deletedAt),
+    index("api_keys_prefix_idx").on(table.prefix),
   ]
 )
 
@@ -181,6 +185,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   usage: many(usage),
   staging: many(staging),
   audiomackToken: many(audiomackTokens),
+  subscriptions: many(userSubscriptions),
 }))
 
 export const jinglesRelations = relations(jingles, ({ one, many }) => ({
@@ -258,6 +263,55 @@ export const audiomackTokensRelations = relations(audiomackTokens, ({ one }) => 
   user: one(users, {
     fields: [audiomackTokens.userId],
     references: [users.id],
+  }),
+}))
+
+// Payment plans table
+export const paymentPlans = sqliteTable("payment_plans", {
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
+  name: text("name").notNull(),
+  description: text("description"),
+  priceNgn: integer("price_ngn").notNull().default(0),
+  rateLimitPerMin: integer("rate_limit_per_min").notNull().default(60),
+  rateLimitPerDay: integer("rate_limit_per_day").notNull().default(1000),
+  raenestLink: text("raenest_link"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+})
+
+// User subscriptions table
+export const userSubscriptions = sqliteTable(
+  "user_subscriptions",
+  {
+    id: text("id").primaryKey().$defaultFn(() => randomUUID()),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    planId: text("plan_id").notNull().references(() => paymentPlans.id, { onDelete: "restrict" }),
+    status: text("status", { enum: ["pending", "active", "expired"] }).notNull().default("pending"),
+    raenestPaymentId: text("raenest_payment_id"),
+    startsAt: integer("starts_at", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userIdIdx: index("user_subscriptions_user_id_idx").on(table.userId),
+    planIdIdx: index("user_subscriptions_plan_id_idx").on(table.planId),
+    statusIdx: index("user_subscriptions_status_idx").on(table.status),
+  })
+)
+
+export const paymentPlansRelations = relations(paymentPlans, ({ many }) => ({
+  subscriptions: many(userSubscriptions),
+}))
+
+export const userSubscriptionsRelations = relations(userSubscriptions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSubscriptions.userId],
+    references: [users.id],
+  }),
+  plan: one(paymentPlans, {
+    fields: [userSubscriptions.planId],
+    references: [paymentPlans.id],
   }),
 }))
 

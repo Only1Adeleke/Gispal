@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import dynamic from "next/dynamic"
+import { ThemeProvider } from "@/components/providers/ThemeProvider"
+import { QueryProvider } from "@/components/providers/QueryProvider"
 
 // Dynamic import for client-only components
 const Toaster = dynamic(() => import("@/components/ui/toaster").then((mod) => ({ default: mod.Toaster })), {
@@ -29,11 +31,20 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${inter.variable} light`} suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className={`${inter.className} antialiased`} suppressHydrationWarning>
-        {children}
-        <Toaster />
-        <SonnerToaster />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={true}
+          disableTransitionOnChange={false}
+        >
+          <QueryProvider>
+            {children}
+            <Toaster />
+            <SonnerToaster />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

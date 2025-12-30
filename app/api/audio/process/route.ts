@@ -45,21 +45,21 @@ export async function POST(request: NextRequest) {
         // For development, we'll still need a user ID, so create a temporary one
         // But first, let's check if we can proceed
       } else {
-        console.error("[PROCESS] Unauthorized: No session or user")
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      console.error("[PROCESS] Unauthorized: No session or user")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
     }
     
     // If we have a session, validate it
     if (session && (!session.user || !session.user.id)) {
       if (!isDevelopment) {
-        console.error("[PROCESS] Unauthorized: No user ID in session")
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      console.error("[PROCESS] Unauthorized: No user ID in session")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
     }
     
     if (session?.user?.id) {
-      console.log("[PROCESS] Authenticated user ID:", session.user.id)
+    console.log("[PROCESS] Authenticated user ID:", session.user.id)
     } else if (isDevelopment) {
       console.log("[PROCESS] Development mode - proceeding without user ID")
     }
@@ -68,37 +68,37 @@ export async function POST(request: NextRequest) {
     let user = null
     if (session?.user?.id) {
       user = await db.users.findById(session.user.id)
-      if (!user) {
-        console.log("[PROCESS] User not found in DB, creating...")
-        try {
-          user = await db.users.create(
-            {
-              email: session.user.email || "",
-              name: session.user.name || undefined,
-              plan: "free",
-              bandwidthLimit: 100 * 1024 * 1024, // 100MB default
-            },
-            session.user.id // Use Better Auth's user ID
-          )
-          // Set first user as admin
-          const allUsers = await db.users.findAll()
-          if (allUsers.length === 1) {
-            user = await db.users.update(user.id, { role: "admin" })
-            console.log("[PROCESS] First user set as admin")
-          }
-        } catch (error: any) {
-          console.error("[PROCESS] Error creating user:", error)
-          return NextResponse.json(
-            { error: "Failed to initialize user account" },
-            { status: 500 }
-          )
+    if (!user) {
+      console.log("[PROCESS] User not found in DB, creating...")
+      try {
+        user = await db.users.create(
+          {
+            email: session.user.email || "",
+            name: session.user.name || undefined,
+            plan: "free",
+            bandwidthLimit: 100 * 1024 * 1024, // 100MB default
+          },
+          session.user.id // Use Better Auth's user ID
+        )
+        // Set first user as admin
+        const allUsers = await db.users.findAll()
+        if (allUsers.length === 1) {
+          user = await db.users.update(user.id, { role: "admin" })
+          console.log("[PROCESS] First user set as admin")
         }
+      } catch (error: any) {
+        console.error("[PROCESS] Error creating user:", error)
+        return NextResponse.json(
+          { error: "Failed to initialize user account" },
+          { status: 500 }
+        )
       }
-      
-      // Grant admin access for testing (if not already admin)
-      if (user.role !== "admin") {
-        console.log("[PROCESS] Elevating user to admin for testing")
-        user = await db.users.update(user.id, { role: "admin" })
+    }
+    
+    // Grant admin access for testing (if not already admin)
+    if (user.role !== "admin") {
+      console.log("[PROCESS] Elevating user to admin for testing")
+      user = await db.users.update(user.id, { role: "admin" })
       }
     } else if (isDevelopment) {
       // In development mode without session, we'll proceed but skip user-specific operations
@@ -247,14 +247,14 @@ export async function POST(request: NextRequest) {
       console.log("[PROCESS] Legacy cover art handling - coverArtSource:", coverArtSource || "not specified")
       
       if (coverArtSource === "original") {
-        try {
-          const extractedCoverPath = await extractCoverArt(stagingPath)
-          if (extractedCoverPath) {
-            coverArtPath = extractedCoverPath
-            console.log("[PROCESS] Extracted cover art from staging file:", coverArtPath)
-          }
-        } catch (error) {
-          console.error("[PROCESS] Failed to extract cover art:", error)
+      try {
+        const extractedCoverPath = await extractCoverArt(stagingPath)
+        if (extractedCoverPath) {
+          coverArtPath = extractedCoverPath
+          console.log("[PROCESS] Extracted cover art from staging file:", coverArtPath)
+        }
+      } catch (error) {
+        console.error("[PROCESS] Failed to extract cover art:", error)
         }
       }
     }
@@ -462,15 +462,15 @@ export async function POST(request: NextRequest) {
 
     // Record usage (only if we have a session)
     if (session?.user?.id) {
-      try {
-        const fileSize = (await fsPromises.stat(absoluteOutputPath)).size
-        await db.usage.record(session.user.id, "upload", {
-          audioId: audio.id,
-          duration: finalDuration,
-          fileSize,
-        })
-      } catch (usageError) {
-        console.error("Failed to record usage:", usageError)
+    try {
+      const fileSize = (await fsPromises.stat(absoluteOutputPath)).size
+      await db.usage.record(session.user.id, "upload", {
+        audioId: audio.id,
+        duration: finalDuration,
+        fileSize,
+      })
+    } catch (usageError) {
+      console.error("Failed to record usage:", usageError)
       }
     }
 
@@ -641,12 +641,12 @@ async function processAudioMetadata(
         
         // Validate it's a valid image
         const isJPEG = coverImageBuffer[0] === 0xFF && coverImageBuffer[1] === 0xD8 && coverImageBuffer[2] === 0xFF
-        const isPNG = coverImageBuffer[0] === 0x89 && coverImageBuffer[1] === 0x50 && coverImageBuffer[2] === 0x4E && coverImageBuffer[3] === 0x47
-        
+          const isPNG = coverImageBuffer[0] === 0x89 && coverImageBuffer[1] === 0x50 && coverImageBuffer[2] === 0x4E && coverImageBuffer[3] === 0x47
+          
         if (!isJPEG && !isPNG) {
           console.warn("[TAG] ⚠️ Cover art may not be valid JPEG/PNG")
+          }
         }
-      }
     } else {
       console.log("[TAG] No cover art path provided")
     }
@@ -725,7 +725,7 @@ async function processAudioMetadata(
     if (!updateResult) {
       console.error("[COVER-FIX] step=nodeid3-failed msg='NodeID3.update() returned false'")
       throw new Error("NodeID3.update() failed - returned false")
-    }
+      }
     
     console.log("[COVER-FIX] step=nodeid3-success msg='NodeID3.update() completed'")
     
@@ -821,7 +821,7 @@ async function processAudioMetadata(
           } else {
             console.error("[COVER-FIX] step=ffmpeg-verify-failed msg='❌ Final ffmpeg output lacks cover art'")
             // Still continue - file was processed
-          }
+      }
         } else {
           console.error("[COVER-FIX] step=ffmpeg-missing msg='Final ffmpeg output file not created'")
           throw new Error("Final ffmpeg output file not created")

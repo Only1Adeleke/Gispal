@@ -160,7 +160,7 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
       lastError = error
       if (i === infoAttempts.length - 1) {
         // Last attempt failed
-        throw new Error(`Failed to get video info after ${infoAttempts.length} attempts: ${lastError.message}`)
+        throw new Error(`Failed to get video info after ${infoAttempts.length} attempts: ${lastError?.message || "Unknown error"}`)
       }
     }
   }
@@ -169,15 +169,24 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
     throw new Error("Failed to retrieve video info")
   }
 
+  // Get ffmpeg path if available (for audio conversion)
+  let ffmpegPath: string | null = null
+  try {
+    const ffmpegStatic = require("ffmpeg-static")
+    if (ffmpegStatic) {
+      ffmpegPath = typeof ffmpegStatic === "string" ? ffmpegStatic : (ffmpegStatic as any).path || ffmpegStatic
+    }
+  } catch {
+    // ffmpeg-static not available, will download raw audio format
+  }
+
   // Download audio with best quality - multiple fallback strategies
   const downloadAttempts = [
-    // Attempt 1: Best audio format with web client
+    // Attempt 1: Best audio format with web client (with ffmpeg if available)
     [
       url,
       "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      ...(ffmpegPath ? ["--ffmpeg-location", ffmpegPath, "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] : []),
       "--no-playlist",
       "--no-warnings",
       "--no-check-certificate",
@@ -191,9 +200,7 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
     [
       url,
       "-f", "bestaudio/best",
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      ...(ffmpegPath ? ["--ffmpeg-location", ffmpegPath, "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] : []),
       "--no-playlist",
       "--no-warnings",
       "--compat-options", "no-youtube-unavailable-videos",
@@ -208,9 +215,7 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
     [
       url,
       "-f", "bestaudio/best",
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      ...(ffmpegPath ? ["--ffmpeg-location", ffmpegPath, "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] : []),
       "--no-playlist",
       "--no-warnings",
       "--extractor-args", "youtube:player_client=ios",
@@ -224,9 +229,7 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
     [
       url,
       "-f", "bestaudio/best",
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      ...(ffmpegPath ? ["--ffmpeg-location", ffmpegPath, "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] : []),
       "--no-playlist",
       "--no-warnings",
       "--extractor-args", "youtube:player_client=tv_embedded",
@@ -236,13 +239,10 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
       "--quiet",
       "--no-progress",
     ],
-    // Attempt 5: Any format, let ffmpeg handle conversion
+    // Attempt 5: Raw audio format (no conversion needed)
     [
       url,
-      "-f", "best[height<=720]/best",
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
+      "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
       "--no-playlist",
       "--no-warnings",
       "--no-check-certificate",
@@ -259,11 +259,19 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
       console.log(`[YOUTUBE] Downloading audio (attempt ${i + 1}/${downloadAttempts.length})...`)
       await ytDlp.execPromise(downloadAttempts[i])
 
-      // Find the downloaded file
+      // Find the downloaded file (accept any audio format)
       const files = await fs.readdir(tempDir)
       const baseName = fileId
       const downloadedFile = files.find((f) => {
-        return f.startsWith(baseName) && (f.endsWith(".mp3") || f.endsWith(".m4a") || f.endsWith(".webm") || f.endsWith(".opus") || f.endsWith(".ogg"))
+        return f.startsWith(baseName) && (
+          f.endsWith(".mp3") || 
+          f.endsWith(".m4a") || 
+          f.endsWith(".webm") || 
+          f.endsWith(".opus") || 
+          f.endsWith(".ogg") ||
+          f.endsWith(".aac") ||
+          f.endsWith(".flac")
+        )
       })
 
       if (!downloadedFile) {
@@ -312,10 +320,10 @@ export async function downloadYouTubeAudio(url: string): Promise<YouTubeDownload
         }
       } catch {}
 
-      if (i === downloadAttempts.length - 1) {
-        // Last attempt failed
-        throw new Error(`Failed to download YouTube audio after ${downloadAttempts.length} attempts: ${downloadError.message}`)
-      }
+              if (i === downloadAttempts.length - 1) {
+                // Last attempt failed
+                throw new Error(`Failed to download YouTube audio after ${downloadAttempts.length} attempts: ${downloadError?.message || "Unknown error"}`)
+              }
     }
   }
 

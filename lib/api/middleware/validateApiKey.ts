@@ -183,9 +183,21 @@ export async function validateApiKey(
       console.error("[API-KEY] Failed to log usage:", error)
     })
 
-  // Update last used timestamp
+  // Update last used timestamp and increment usage count
+  // Get current usage count first
+  const currentKey = await db
+    .select({ usageCount: apiKeys.usageCount })
+    .from(apiKeys)
+    .where(eq(apiKeys.id, apiKey.id))
+    .limit(1)
+    .then((rows) => rows[0])
+
   db.update(apiKeys)
-    .set({ lastUsedAt: new Date() })
+    .set({ 
+      lastUsedAt: new Date(),
+      usageCount: (currentKey?.usageCount || 0) + 1,
+      updatedAt: new Date(),
+    })
     .where(eq(apiKeys.id, apiKey.id))
     .catch((error) => {
       console.error("[API-KEY] Failed to update lastUsedAt:", error)
